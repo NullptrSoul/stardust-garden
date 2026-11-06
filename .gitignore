@@ -1,0 +1,7 @@
+node_modules/
+dist/
+# Reference sheets still carry real company names and logos; keep them local only.
+art-source/
+.claude/settings.local.json
+*.log
+.DS_Store
