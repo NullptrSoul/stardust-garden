@@ -22,3 +22,11 @@ export const VIEW_MARGIN_BOTTOM = 170;
 
 /** The HUD covers this much of the top of the screen. */
 export const HUD_HEIGHT = 170;
+
+/** Round ground areas (red warnings, blasts) are drawn squashed to this height: the view looks down at an angle. */
+export const GROUND_SQUASH = 0.55;
+
+/** True when a point is inside a ground circle as drawn, with `pad` extra reach (the player's body). */
+export function inGroundCircle(px: number, py: number, cx: number, cy: number, r: number, pad: number): boolean {
+  return Math.hypot(px - cx, (py - cy) / GROUND_SQUASH) < r + pad;
+}

@@ -17,6 +17,7 @@ export function createTuningPanel(game: Game): void {
   waves.add(config, 'spawnIntervalLast', 0.1, 2, 0.05).name('第 10 波刷怪间隔');
   waves.add(config, 'spawnTelegraph', 0.2, 2, 0.05).name('刷怪预警（秒）');
   waves.add(config, 'enemyHpGrowth', 0, 1, 0.05).name('怪物每波加血');
+  waves.add(config, 'enemyHpQuad', 0, 0.05, 0.002).name('怪物后期加血');
   waves.add(config, 'maxEnemies', 20, 300, 10).name('同屏怪物上限');
 
   const skill = gui.addFolder('技能');
@@ -30,12 +31,14 @@ export function createTuningPanel(game: Game): void {
   economy.add(config, 'rerollBase', 0, 20, 1).name('刷新基础价');
   economy.add(config, 'xpBase', 2, 40, 1).name('升级基础经验');
   economy.add(config, 'xpPerLevel', 0, 20, 1).name('每级多需经验');
+  economy.add(config, 'xpQuad', 0, 3, 0.1).name('升级越来越慢');
 
   waves.add(config, 'eliteChance', 0, 0.5, 0.01).name('精英出现率');
   waves.add(config, 'spawnMaxDistance', 300, 1200, 10).name('刷怪最远距离');
 
   const feel = gui.addFolder('手感');
   feel.add(config, 'sound').name('音效');
+  feel.add(config, 'music').name('音乐');
   feel.add(config, 'shake').name('震动');
   feel.add(config, 'hitStop').name('顿帧');
   feel.add(config, 'screenFlash').name('受伤红边');
@@ -44,6 +47,7 @@ export function createTuningPanel(game: Game): void {
   const actions = {
     endWave: () => game.debugEndWave(),
     shards: () => game.debugAddShards(50),
+    stardust: () => game.debugAddStardust(100),
     skill: () => game.debugFillSkill(),
     king: () => game.debugJumpToWave(5),
     knight: () => game.debugJumpToWave(8),
@@ -51,6 +55,7 @@ export function createTuningPanel(game: Game): void {
   };
   gui.add(actions, 'endWave').name('直接结束这一波');
   gui.add(actions, 'shards').name('星屑 +50');
+  gui.add(actions, 'stardust').name('星尘 +100（天赋用）');
   gui.add(actions, 'skill').name('技能充满');
   gui.add(actions, 'king').name('跳到第 5 波 Boss');
   gui.add(actions, 'knight').name('跳到第 8 波 Boss');

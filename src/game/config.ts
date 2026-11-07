@@ -12,8 +12,8 @@ export const config = {
   regenPerPoint: 0.12,
   /** Base distance at which star shards start flying to the player. */
   basePickup: 90,
-  /** Weapons float on a ring this far from the player. */
-  weaponOrbit: 54,
+  /** Weapons float this far outside the character's outline. */
+  weaponOrbit: 16,
   /** Drag distance for full speed on the virtual joystick. */
   joystickRadius: 80,
 
@@ -35,8 +35,10 @@ export const config = {
   /** ...and never farther, so the fight stays around the player on a big map. */
   spawnMaxDistance: 650,
   maxEnemies: 120,
-  /** Monster HP grows by this share each wave. */
+  /** Monster HP grows by this share each wave... */
   enemyHpGrowth: 0.3,
+  /** ...plus this share times (wave - 1)², so late waves keep up with a grown build. */
+  enemyHpQuad: 0.012,
   /** Monster damage grows by 1 every this many waves. */
   enemyDamageEvery: 3,
 
@@ -52,13 +54,17 @@ export const config = {
   shopSize: 4,
   rerollBase: 2,
   /** Shop prices grow by this share each wave. */
-  priceGrowth: 0.12,
+  priceGrowth: 0.15,
+  /** Shards for the next level: xpBase + xpPerLevel·(level-1) + xpQuad·(level-1)². */
   xpBase: 10,
-  xpPerLevel: 6,
+  xpPerLevel: 5,
+  xpQuad: 1,
   maxWeapons: 6,
 
   // Feel
   sound: true,
+  /** Background music. */
+  music: true,
   /** Screen shake and camera kick. */
   shake: true,
   /** Brief freeze frames on kills, crits and big hits. */

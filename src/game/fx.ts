@@ -141,13 +141,89 @@ export class Fx {
     }
   }
 
+  /** Pieces of a broken monster (or rock): spinning shards that fly up and fall. */
+  shatter(x: number, y: number, color: string, count: number, speed: number): void {
+    for (let i = 0; i < count; i++) {
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * 3.2;
+      const s = speed * (0.45 + Math.random() * 0.55);
+      this.spawn('shard', x, y, {
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s,
+        size: 6 + Math.random() * 7,
+        life: 0.55 + Math.random() * 0.35,
+        color: i % 3 === 0 ? '#FFFFFF' : color,
+        drag: 1.2,
+        gravity: 1500,
+      });
+    }
+  }
+
+  /** Pale wisps floating up out of a defeated monster. */
+  soul(x: number, y: number, color: string): void {
+    for (let i = 0; i < 3; i++) {
+      this.spawn('dot', x + (Math.random() - 0.5) * 14, y, {
+        vx: (Math.random() - 0.5) * 30,
+        vy: -110 - Math.random() * 60 - i * 25,
+        size: 9 - i * 2,
+        grow: -6,
+        life: 0.8 + i * 0.15,
+        color,
+        drag: 1,
+        glow: true,
+      });
+    }
+  }
+
+  /** Dark smoke and sparks thrown up as a monster climbs out of a rift. */
+  emerge(x: number, y: number, color: string, big: boolean): void {
+    for (let i = 0; i < (big ? 10 : 5); i++) {
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.4;
+      const s = 80 + Math.random() * 120;
+      this.spawn('puff', x + (Math.random() - 0.5) * 30, y, {
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s,
+        size: 9 + Math.random() * 8,
+        grow: 26,
+        life: 0.35 + Math.random() * 0.2,
+        color: '#7A62A8',
+        drag: 4,
+      });
+    }
+    for (let i = 0; i < (big ? 14 : 7); i++) {
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * 1.8;
+      const s = 200 + Math.random() * 260;
+      this.spawn('dot', x, y, {
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s,
+        size: 3 + Math.random() * 3,
+        life: 0.4 + Math.random() * 0.3,
+        color,
+        drag: 3,
+        gravity: 600,
+        glow: true,
+      });
+    }
+  }
+
+  /** A small green sparkle drifting up from a regenerating monster. */
+  heal(x: number, y: number): void {
+    this.spawn('star', x + (Math.random() - 0.5) * 30, y, {
+      vy: -70,
+      size: 7 + Math.random() * 4,
+      grow: -6,
+      life: 0.6,
+      color: '#7CF0A8',
+      glow: true,
+    });
+  }
+
   text(x: number, y: number, text: string, color: string, size: number): void {
     if (this.texts.length >= MAX_TEXTS) this.texts.shift();
     this.texts.push({ x, y, vx: (Math.random() - 0.5) * 60, vy: -170, life: 0.7, maxLife: 0.7, text, color, size });
   }
 
   addShake(amount: number): void {
-    this.shake = Math.min(26, this.shake + amount);
+    this.shake = Math.min(18, this.shake + amount);
   }
 
   /** Nudges the camera in one direction (recoil, a heavy swing); springs back fast. */
@@ -210,7 +286,7 @@ export class Fx {
     }
 
     this.lineFlash = Math.max(0, this.lineFlash - dt * 2.5);
-    this.shake *= Math.exp(-dt * 10);
+    this.shake *= Math.exp(-dt * 13);
     if (this.shake < 0.3) this.shake = 0;
     const spring = Math.exp(-dt * 14);
     this.kickX *= spring;

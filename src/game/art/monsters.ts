@@ -1,6 +1,6 @@
 import type { EnemyLook } from '../data/enemies';
-import { darken, lighten, palette } from '../palette';
-import { circle, ellipse, LINE, paint, sparklePath } from './draw';
+import { lighten, palette, rgba, shade } from '../palette';
+import { circle, ellipse, paint, sparklePath } from './draw';
 
 export interface MonsterPose {
   look: EnemyLook;
@@ -25,6 +25,8 @@ export interface MonsterPose {
   menace: number;
   /** Height above the ground (boss jumps). */
   lift: number;
+  /** Aura color for an elite's affix; defaults to the dark red menace aura. */
+  aura?: string;
 }
 
 interface Face {
@@ -105,6 +107,21 @@ export function drawMonster(ctx: CanvasRenderingContext2D, m: MonsterPose): void
     case 'queen':
       drawQueen(ctx, m, face);
       break;
+    case 'leech':
+      drawLeech(ctx, m, face);
+      break;
+    case 'frog':
+      drawFrog(ctx, m, face);
+      break;
+    case 'wisp':
+      drawWisp(ctx, m, face);
+      break;
+    case 'golem':
+      drawGolem(ctx, m, face);
+      break;
+    case 'toad':
+      drawToad(ctx, m, face);
+      break;
   }
   ctx.restore();
   if (m.alert) {
@@ -126,12 +143,13 @@ function drawAura(ctx: CanvasRenderingContext2D, m: MonsterPose, feetY: number, 
   const pulse = 0.85 + 0.15 * Math.sin(m.time * 4 + m.seed);
   const g = ctx.createRadialGradient(m.x, feetY, r * 0.2, m.x, feetY, r * pulse);
   g.addColorStop(0, 'rgba(58, 31, 92, 0.55)');
-  g.addColorStop(0.6, 'rgba(120, 30, 90, 0.25)');
+  g.addColorStop(0.6, m.aura ? rgba(m.aura, 0.3) : 'rgba(120, 30, 90, 0.25)');
   g.addColorStop(1, 'rgba(58, 31, 92, 0)');
   ctx.fillStyle = g;
   ellipse(ctx, m.x, feetY, r * pulse, r * 0.45 * pulse);
   ctx.fill();
-  ctx.strokeStyle = `rgba(255, 59, 107, ${0.35 + 0.25 * Math.sin(m.time * 6 + m.seed)})`;
+  const ring = 0.35 + 0.25 * Math.sin(m.time * 6 + m.seed);
+  ctx.strokeStyle = m.aura ? rgba(m.aura, ring + 0.2) : `rgba(255, 59, 107, ${ring})`;
   ctx.lineWidth = 2.5;
   ellipse(ctx, m.x, feetY, r * 0.8, r * 0.3);
   ctx.stroke();
@@ -141,7 +159,7 @@ function drawAura(ctx: CanvasRenderingContext2D, m: MonsterPose, feetY: number, 
     const wx = m.x + Math.sin(i * 2.3 + m.time * 1.5) * m.r * 0.9;
     const wy = feetY - k * m.r * 2.6 - m.lift;
     circle(ctx, wx, wy, (1 - k) * m.r * 0.18 + 2);
-    ctx.fillStyle = `rgba(70, 30, 100, ${(1 - k) * 0.45})`;
+    ctx.fillStyle = m.aura ? rgba(m.aura, (1 - k) * 0.55) : `rgba(70, 30, 100, ${(1 - k) * 0.45})`;
     ctx.fill();
   }
 }
@@ -159,7 +177,7 @@ function drawDarkKnight(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Fac
   ctx.lineTo(-4 + sway, 0);
   ctx.lineTo(24, -48);
   ctx.closePath();
-  paint(ctx, '#7A1F3D', LINE, '#3A0A1C');
+  paint(ctx, '#5A1428', 3.5, GRIM_LINE);
   // Greatsword on the side it faces
   ctx.save();
   ctx.translate(30, -24);
@@ -174,7 +192,7 @@ function drawDarkKnight(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Fac
   const blade = ctx.createLinearGradient(-5, 0, 5, 0);
   blade.addColorStop(0, '#E9E4FF');
   blade.addColorStop(1, '#9C8CD6');
-  paint(ctx, blade, 2.2, line);
+  paint(ctx, blade, 3, GRIM_LINE);
   ctx.strokeStyle = 'rgba(180, 140, 255, 0.8)';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
@@ -225,14 +243,14 @@ function drawDarkKnight(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Fac
   }
   ctx.restore();
   body();
-  ctx.strokeStyle = line;
-  ctx.lineWidth = LINE;
+  ctx.strokeStyle = GRIM_LINE;
+  ctx.lineWidth = 4.5;
   ctx.stroke();
   // Pauldrons
   for (const side of [-1, 1]) {
     ctx.beginPath();
     ctx.ellipse(side * 24, -h * 0.62, 12, 9, side * 0.4, 0, Math.PI * 2);
-    paint(ctx, '#4A4370', 2.4, line);
+    paint(ctx, '#4A4370', 3, GRIM_LINE);
   }
   // Helmet horns
   for (const side of [-1, 1]) {
@@ -241,7 +259,7 @@ function drawDarkKnight(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Fac
     ctx.quadraticCurveTo(side * 28, -h - 6, side * 24, -h - 26);
     ctx.quadraticCurveTo(side * 20, -h - 10, side * 4, -h + 8);
     ctx.closePath();
-    paint(ctx, '#2A2440', 2.2, line);
+    paint(ctx, '#2A2440', 3, GRIM_LINE);
   }
   // Visor slit with glowing eyes
   ctx.beginPath();
@@ -270,390 +288,773 @@ function drawDarkKnight(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Fac
 
 // ---- New monster types ----
 
-/** Charger: a round bunny with a little horn; dashes when it winds up. */
+/** Feral hare: matted fur, torn ears, a bone horn and buck fangs; dashes when it winds up. */
 function drawBunny(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Face): void {
   const w = 50;
   const h = 44;
-  const line = '#C98FA8';
   const flop = Math.sin(m.time * 6 + m.seed) * 0.12;
   for (const side of [-1, 1]) {
     ctx.save();
-    ctx.translate(side * 9, -h + 6);
-    ctx.rotate(side * 0.18 + flop * side);
+    ctx.translate(side * 9, -h + 8);
+    ctx.rotate(side * 0.28 + flop * side);
     ctx.beginPath();
-    ctx.ellipse(0, -16, 7.5, 18, 0, 0, Math.PI * 2);
-    paint(ctx, m.color, LINE, line);
+    ctx.moveTo(-6, 2);
+    ctx.quadraticCurveTo(-9, -22, -2, -34);
+    if (side > 0) {
+      // A torn notch in one ear
+      ctx.lineTo(1, -27);
+      ctx.lineTo(4, -32);
+    }
+    ctx.quadraticCurveTo(8, -22, 6, 2);
+    ctx.closePath();
+    paint(ctx, m.color, 3.5, GRIM_LINE);
     ctx.beginPath();
-    ctx.ellipse(0, -15, 3.5, 12, 0, 0, Math.PI * 2);
-    ctx.fillStyle = '#FFC2D6';
-    ctx.fill();
+    ctx.moveTo(-1, -2);
+    ctx.quadraticCurveTo(-3, -16, -1, -24);
+    ctx.strokeStyle = '#7E3E4A';
+    ctx.lineWidth = 3;
+    ctx.stroke();
     ctx.restore();
   }
   const body = (): void => {
     ctx.beginPath();
-    ctx.ellipse(0, -h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+    ctx.moveTo(-w / 2, -6);
+    ctx.bezierCurveTo(-w / 2 - 2, -h * 0.75, -w * 0.25, -h, 0, -h);
+    ctx.bezierCurveTo(w * 0.3, -h, w / 2 + 2, -h * 0.7, w / 2, -6);
+    // Ragged fur along the bottom
+    ctx.lineTo(w * 0.36, 0);
+    ctx.lineTo(w * 0.24, -4);
+    ctx.lineTo(w * 0.12, 1);
+    ctx.lineTo(0, -3);
+    ctx.lineTo(-w * 0.12, 1);
+    ctx.lineTo(-w * 0.24, -4);
+    ctx.lineTo(-w * 0.36, 0);
+    ctx.closePath();
   };
-  jelly(ctx, body, w, h, m.color, line, m.flash);
-  // Little golden horn
+  grimBody(ctx, body, w, h, m.color, m.flash, '#E8DCCF');
+  // Bristling fur on the back
   ctx.beginPath();
-  ctx.moveTo(-4, -h + 4);
-  ctx.lineTo(0, -h - 10);
-  ctx.lineTo(4, -h + 4);
+  for (let i = 0; i < 3; i++) {
+    const x = -w * 0.44 + i * 7;
+    const y = -h * 0.5 - i * 8;
+    ctx.moveTo(x + 2, y + 2);
+    ctx.lineTo(x - 9, y - 4);
+    ctx.lineTo(x + 4, y - 3);
+  }
+  ctx.strokeStyle = GRIM_LINE;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  // Bone horn
+  ctx.beginPath();
+  ctx.moveTo(-3, -h + 2);
+  ctx.quadraticCurveTo(4, -h - 10, 13, -h - 16);
+  ctx.quadraticCurveTo(7, -h - 4, 6, -h + 3);
   ctx.closePath();
-  paint(ctx, palette.goldLight, 2, palette.gold);
-  animeEyes(ctx, -h * 0.52, 10, 6, 7.5, '#E0466E', line, face);
-  blush(ctx, -h * 0.3, 15);
-  mouth(ctx, -h * 0.24, face.hurt ? 'open' : 'cat', line);
-  // Fluffy tail
-  circle(ctx, -w / 2 + 2, -h * 0.3, 7);
-  paint(ctx, '#FFFFFF', 2, line);
+  paint(ctx, '#DCD0B4', 2.5, GRIM_LINE);
+  glowEyes(ctx, [[-9, -h * 0.55, 4.5], [10, -h * 0.55, 4.5]], face.menace ? palette.menaceEye : '#FF4B4B', face);
+  // Buck fangs
+  ctx.beginPath();
+  ctx.moveTo(-5, -h * 0.33);
+  ctx.lineTo(5, -h * 0.33);
+  ctx.lineTo(5, -h * 0.17);
+  ctx.lineTo(0, -h * 0.22);
+  ctx.lineTo(-5, -h * 0.17);
+  ctx.closePath();
+  paint(ctx, '#EDE4CC', 2, GRIM_LINE);
+  ctx.beginPath();
+  ctx.moveTo(0, -h * 0.33);
+  ctx.lineTo(0, -h * 0.22);
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
 }
 
-/** Splitter: a big two-tone slime; splits into two minis when it dies. */
+/** Fused twins: two oozes grown into one stitched body; they tear apart when it dies. */
 function drawTwin(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Face): void {
-  const w = 64;
+  const w = 66;
   const h = 54;
-  const line = darken(palette.twinA, 0.5);
-  const path = slimePath(ctx, w, h);
-  jelly(ctx, path, w, h, palette.twinA, line, m.flash);
+  const path = (): void => {
+    ctx.beginPath();
+    ctx.moveTo(-w / 2, -4);
+    ctx.bezierCurveTo(-w / 2 - 2, -h * 0.75, -w * 0.36, -h - 2, -w * 0.2, -h);
+    ctx.quadraticCurveTo(-w * 0.05, -h + 2, 0, -h * 0.82);
+    ctx.quadraticCurveTo(w * 0.05, -h - 4, w * 0.22, -h - 2);
+    ctx.bezierCurveTo(w * 0.4, -h, w / 2 + 2, -h * 0.7, w / 2, -4);
+    ctx.quadraticCurveTo(w * 0.4, 2, w * 0.25, 0);
+    ctx.quadraticCurveTo(w * 0.18, 9, w * 0.1, 0);
+    ctx.lineTo(-w * 0.3, 0);
+    ctx.quadraticCurveTo(-w * 0.46, 2, -w / 2, -4);
+    ctx.closePath();
+  };
+  grimBody(ctx, path, w, h, palette.twinA, m.flash, '#D6F0A0');
+  // The other twin's half, in its own color
   ctx.save();
   path();
   ctx.clip();
   const g = ctx.createLinearGradient(0, -h, 0, 0);
-  g.addColorStop(0, lighten(palette.twinB, 0.45));
-  g.addColorStop(1, palette.twinB);
+  g.addColorStop(0, lighten(palette.twinB, 0.16));
+  g.addColorStop(0.55, palette.twinB);
+  g.addColorStop(1, shade(palette.twinB, 0.4));
   ctx.fillStyle = g;
-  ctx.fillRect(0, -h - 2, w, h + 4);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-  ctx.beginPath();
-  ctx.ellipse(w * 0.2, -h * 0.72, w * 0.1, h * 0.06, -0.6, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.fillRect(0, -h - 8, w, h + 12);
   if (m.flash > 0) {
-    ctx.fillStyle = `rgba(255, 255, 255, ${m.flash * 0.8})`;
-    ctx.fillRect(0, -h - 2, w, h + 4);
+    ctx.fillStyle = `rgba(255, 255, 255, ${m.flash * 0.85})`;
+    ctx.fillRect(0, -h - 8, w, h + 12);
   }
   ctx.restore();
-  // The seam where it will split
-  ctx.beginPath();
-  ctx.moveTo(0, -h + 2);
-  ctx.quadraticCurveTo(-4, -h * 0.5, 0, 0);
-  ctx.strokeStyle = 'rgba(75, 63, 114, 0.35)';
-  ctx.lineWidth = 2;
-  ctx.setLineDash([4, 4]);
-  ctx.stroke();
-  ctx.setLineDash([]);
   path();
-  ctx.strokeStyle = line;
-  ctx.lineWidth = LINE;
+  ctx.strokeStyle = GRIM_LINE;
+  ctx.lineWidth = 4.5;
   ctx.stroke();
-  leaf(ctx, -12, -h + 6, line);
-  bow(ctx, 14, -h + 8, palette.danger);
-  animeEyes(ctx, -h * 0.5, 13, 7.5, 9, '#7A4FD6', line, face);
-  blush(ctx, -h * 0.28, 20);
-  mouth(ctx, -h * 0.2, face.hurt ? 'open' : 'cat', line);
+  // Stitched seam
+  ctx.beginPath();
+  ctx.moveTo(0, -h * 0.82);
+  ctx.quadraticCurveTo(-3, -h * 0.4, 0, 0);
+  ctx.strokeStyle = GRIM_LINE;
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+  for (let i = 1; i <= 4; i++) {
+    const y = -h * 0.82 + h * 0.82 * (i / 5);
+    ctx.beginPath();
+    ctx.moveTo(-6, y - 2);
+    ctx.lineTo(6, y + 2);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  const eye = face.menace ? palette.menaceEye : '#E6FF5C';
+  glowEyes(ctx, [[-16, -h * 0.62, 6], [16, -h * 0.66, 5]], eye, face);
+  maw(ctx, -15, -h * 0.3, 18, 5, 4, face.hurt);
+  maw(ctx, 15, -h * 0.33, 16, 5, 3, face.hurt);
 }
 
-/** Looter: a masked cat carrying a sack of stardust; runs away. */
+/** Shadow thief: a scrawny black cat in a red scarf, hauling a glowing sack of stolen stardust. */
 function drawCat(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Face): void {
   const w = 50;
   const h = 46;
-  const line = darken(m.color, 0.55);
-  // Sack on its back
+  // The sack, glowing with stolen stardust
   ctx.save();
   ctx.translate(-20, -h * 0.55);
   ctx.rotate(-0.3);
+  const glow = ctx.createRadialGradient(0, 0, 4, 0, 0, 28);
+  glow.addColorStop(0, 'rgba(140, 200, 255, 0.5)');
+  glow.addColorStop(1, 'rgba(140, 200, 255, 0)');
+  ctx.fillStyle = glow;
+  circle(ctx, 0, 0, 28);
+  ctx.fill();
   ctx.beginPath();
   ctx.ellipse(0, 0, 15, 17, 0, 0, Math.PI * 2);
-  paint(ctx, '#F1DDB8', LINE, '#A88458');
-  sparklePath(ctx, 0, 2, 7, 0);
-  paint(ctx, palette.shard, 1.6, '#4F86C9');
+  paint(ctx, '#6B5A44', 3.5, GRIM_LINE);
+  ctx.beginPath();
+  ctx.moveTo(-5, -15);
+  ctx.lineTo(0, -22);
+  ctx.lineTo(5, -15);
+  ctx.strokeStyle = GRIM_LINE;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  sparklePath(ctx, 1, 2, 7, 0);
+  paint(ctx, palette.shard, 1.6, '#2F5C9A');
   ctx.restore();
-  // Tail
+  // Thin, kinked tail
   ctx.beginPath();
   ctx.moveTo(-18, -8);
-  ctx.quadraticCurveTo(-34, -14 + Math.sin(m.time * 8) * 6, -30, -32);
-  ctx.strokeStyle = line;
-  ctx.lineWidth = 8;
+  ctx.quadraticCurveTo(-36, -12 + Math.sin(m.time * 8) * 6, -30, -34);
+  ctx.lineTo(-36, -40);
+  ctx.strokeStyle = GRIM_LINE;
+  ctx.lineWidth = 9;
   ctx.stroke();
   ctx.strokeStyle = m.color;
-  ctx.lineWidth = 5;
+  ctx.lineWidth = 4.5;
   ctx.stroke();
+  // Sharp ears; one is notched
   for (const side of [-1, 1]) {
     ctx.beginPath();
-    ctx.moveTo(side * 6, -h + 6);
-    ctx.lineTo(side * 18, -h - 12);
-    ctx.lineTo(side * 22, -h + 10);
+    ctx.moveTo(side * 5, -h + 8);
+    ctx.lineTo(side * 17, -h - 14);
+    if (side > 0) {
+      ctx.lineTo(side * 19, -h - 5);
+      ctx.lineTo(side * 22, -h - 7);
+    }
+    ctx.lineTo(side * 23, -h + 10);
     ctx.closePath();
-    paint(ctx, m.color, LINE, line);
+    paint(ctx, m.color, 3.5, GRIM_LINE);
+    ctx.beginPath();
+    ctx.moveTo(side * 10, -h + 6);
+    ctx.lineTo(side * 16, -h - 6);
+    ctx.lineTo(side * 19, -h + 6);
+    ctx.closePath();
+    ctx.fillStyle = '#5A2A3A';
+    ctx.fill();
   }
   const body = (): void => {
     ctx.beginPath();
-    ctx.ellipse(0, -h / 2, w / 2, h / 2, 0, 0, Math.PI * 2);
+    ctx.moveTo(-w / 2 + 2, -4);
+    ctx.bezierCurveTo(-w / 2 - 2, -h * 0.7, -w * 0.3, -h, 0, -h);
+    ctx.bezierCurveTo(w * 0.3, -h, w / 2 + 2, -h * 0.7, w / 2 - 2, -4);
+    ctx.quadraticCurveTo(0, 3, -w / 2 + 2, -4);
+    ctx.closePath();
   };
-  jelly(ctx, body, w, h, m.color, line, m.flash);
-  // Bandit mask
+  grimBody(ctx, body, w, h, m.color, m.flash, '#9C8CC0');
+  // Red bandit scarf over the lower face, its tail flapping behind
   ctx.beginPath();
-  ctx.moveTo(-22, -h * 0.58);
-  ctx.quadraticCurveTo(0, -h * 0.72, 22, -h * 0.58);
-  ctx.lineTo(22, -h * 0.4);
-  ctx.quadraticCurveTo(0, -h * 0.5, -22, -h * 0.4);
+  ctx.moveTo(-18, -h * 0.34);
+  ctx.quadraticCurveTo(-32, -h * 0.3 + Math.sin(m.time * 10) * 3, -38, -h * 0.18);
+  ctx.lineTo(-30, -h * 0.14);
   ctx.closePath();
-  ctx.fillStyle = '#4B3F72';
-  ctx.fill();
-  animeEyes(ctx, -h * 0.5, 10, 5.5, 6.5, '#F2C65E', line, face);
-  blush(ctx, -h * 0.26, 15);
-  mouth(ctx, -h * 0.2, face.hurt ? 'open' : 'fang', line);
+  paint(ctx, '#8A2433', 2.5, GRIM_LINE);
+  ctx.beginPath();
+  ctx.moveTo(-23, -h * 0.42);
+  ctx.quadraticCurveTo(0, -h * 0.5, 23, -h * 0.42);
+  ctx.lineTo(20, -h * 0.18);
+  ctx.quadraticCurveTo(0, -h * 0.08, -20, -h * 0.18);
+  ctx.closePath();
+  paint(ctx, '#8A2433', 3, GRIM_LINE);
+  glowEyes(ctx, [[-9, -h * 0.62, 5], [9, -h * 0.62, 5]], face.menace ? palette.menaceEye : '#FFD23B', face);
+  // An old scar across one eye
+  ctx.beginPath();
+  ctx.moveTo(-15, -h * 0.8);
+  ctx.lineTo(-4, -h * 0.47);
+  ctx.strokeStyle = '#C9B9C8';
+  ctx.lineWidth = 2;
+  ctx.stroke();
 }
 
-/** Neutral bud: a glowing flower bud; breaking it drops a healing candy. */
+/**
+ * Starlight bud: the one pale, living thing left in the ruins. Not a monster,
+ * so no face; breaking it drops a healing candy.
+ */
 function drawBud(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Face): void {
   const sway = Math.sin(m.time * 2 + m.seed) * 0.08;
-  // Leaves
+  const pulse = 0.75 + 0.25 * Math.sin(m.time * 2.5 + m.seed);
   for (const side of [-1, 1]) {
     ctx.beginPath();
     ctx.moveTo(0, -4);
-    ctx.quadraticCurveTo(side * 26, -12, side * 30, -2);
-    ctx.quadraticCurveTo(side * 16, 2, 0, -4);
+    ctx.quadraticCurveTo(side * 22, -16, side * 32, -4);
+    ctx.lineTo(side * 24, -6);
+    ctx.lineTo(side * 26, 0);
+    ctx.quadraticCurveTo(side * 14, 2, 0, -4);
     ctx.closePath();
-    paint(ctx, palette.leaf, 2.2, '#3F8F5A');
+    paint(ctx, '#3F5A3A', 3, GRIM_LINE);
   }
   ctx.save();
   ctx.rotate(sway);
   ctx.beginPath();
   ctx.moveTo(0, -4);
-  ctx.lineTo(0, -18);
-  ctx.strokeStyle = '#3F8F5A';
-  ctx.lineWidth = 4;
+  ctx.lineTo(0, -20);
+  ctx.strokeStyle = GRIM_LINE;
+  ctx.lineWidth = 6;
   ctx.stroke();
-  // Glow behind the bud
-  const glow = ctx.createRadialGradient(0, -36, 2, 0, -36, 30);
-  glow.addColorStop(0, 'rgba(255, 240, 200, 0.7)');
-  glow.addColorStop(1, 'rgba(255, 240, 200, 0)');
+  ctx.strokeStyle = '#4E6E46';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  const glow = ctx.createRadialGradient(0, -38, 2, 0, -38, 44);
+  glow.addColorStop(0, `rgba(255, 224, 150, ${0.65 * pulse})`);
+  glow.addColorStop(1, 'rgba(255, 224, 150, 0)');
   ctx.fillStyle = glow;
-  ctx.fillRect(-30, -66, 60, 60);
-  const bud = (): void => {
+  circle(ctx, 0, -38, 44);
+  ctx.fill();
+  // Three closed crystal petals
+  for (const [dx, rot] of [
+    [-7, -0.35],
+    [7, 0.35],
+    [0, 0],
+  ]) {
+    ctx.save();
+    ctx.translate(dx, -18);
+    ctx.rotate(rot);
     ctx.beginPath();
-    ctx.moveTo(0, -16);
-    ctx.bezierCurveTo(-20, -20, -18, -48, 0, -58);
-    ctx.bezierCurveTo(18, -48, 20, -20, 0, -16);
+    ctx.moveTo(0, 0);
+    ctx.bezierCurveTo(-14, -6, -12, -30, 0, -40);
+    ctx.bezierCurveTo(12, -30, 14, -6, 0, 0);
     ctx.closePath();
-  };
-  jelly(ctx, bud, 36, 42, m.color, darken(m.color, 0.45), m.flash);
-  ctx.beginPath();
-  ctx.moveTo(0, -18);
-  ctx.quadraticCurveTo(-6, -36, 0, -54);
-  ctx.strokeStyle = 'rgba(176, 48, 92, 0.35)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
-  // Sleepy face
-  if (face.hurt) {
-    animeEyes(ctx, -34, 6, 3.5, 4, '#B0305C', darken(m.color, 0.45), face);
-  } else {
-    for (const side of [-1, 1]) {
-      ctx.beginPath();
-      ctx.moveTo(side * 6 - 3.5, -34);
-      ctx.quadraticCurveTo(side * 6, -31, side * 6 + 3.5, -34);
-      ctx.strokeStyle = darken(m.color, 0.5);
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    }
+    const g = ctx.createLinearGradient(0, -40, 0, 0);
+    g.addColorStop(0, '#FFF7DC');
+    g.addColorStop(1, m.color);
+    paint(ctx, g, 3, GRIM_LINE);
+    ctx.restore();
+  }
+  sparklePath(ctx, 0, -38, 6 + 2 * pulse, 0);
+  ctx.fillStyle = '#FFFFFF';
+  ctx.fill();
+  if (face.hurt || m.flash > 0.3) {
+    // Cracking under the hit
+    ctx.beginPath();
+    ctx.moveTo(-6, -46);
+    ctx.lineTo(-1, -36);
+    ctx.lineTo(-5, -28);
+    ctx.strokeStyle = GRIM_LINE;
+    ctx.lineWidth = 2;
+    ctx.stroke();
   }
   ctx.restore();
 }
 
 // ---- Monster types ----
 
-function slimePath(ctx: CanvasRenderingContext2D, w: number, h: number): () => void {
-  return () => {
-    ctx.beginPath();
-    ctx.moveTo(-w / 2, -5);
-    ctx.bezierCurveTo(-w / 2, -h * 0.8, -w * 0.28, -h, 0, -h);
-    ctx.bezierCurveTo(w * 0.28, -h, w / 2, -h * 0.8, w / 2, -5);
-    ctx.quadraticCurveTo(w / 2, 1, w * 0.36, 1);
-    ctx.lineTo(-w * 0.36, 1);
-    ctx.quadraticCurveTo(-w / 2, 1, -w / 2, -5);
-    ctx.closePath();
-  };
-}
 
+/** Corrosive ooze: a murky, dripping blob with bubbles inside and a toothy grin. */
 function drawSlime(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Face): void {
-  const w = 62;
-  const h = 52;
-  const line = darken(m.color, 0.5);
-  const variant = m.seed % 3;
-  jelly(ctx, slimePath(ctx, w, h), w, h, m.color, line, m.flash);
-  if (variant === 0) leaf(ctx, 2, -h + 1, line);
-  else if (variant === 1) bow(ctx, 14, -h + 6, palette.danger);
-  else droplet(ctx, -2, -h + 1, m.color, line);
-  animeEyes(ctx, -h * 0.5, 12, 7.5, 9, darken(m.color, 0.35), line, face);
-  blush(ctx, -h * 0.28, 19);
-  mouth(ctx, -h * 0.22, face.hurt ? 'open' : 'cat', line);
-}
-
-function drawImp(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Face): void {
-  const w = 54;
-  const h = 48;
-  const line = darken(m.color, 0.5);
-  const flap = Math.sin(m.time * 18 + m.seed) * 0.35;
-  // Wings behind
-  for (const side of [-1, 1]) {
-    ctx.save();
-    ctx.translate(side * 20, -h * 0.6);
-    ctx.rotate(side * (0.3 + flap));
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.quadraticCurveTo(side * 26, -22, side * 30, -4);
-    ctx.quadraticCurveTo(side * 22, -6, side * 20, 4);
-    ctx.quadraticCurveTo(side * 12, 0, 0, 6);
-    ctx.closePath();
-    paint(ctx, lighten(palette.impHorn, 0.35), LINE, darken(palette.impHorn, 0.4));
-    ctx.restore();
-  }
-  // Tail
-  ctx.beginPath();
-  ctx.moveTo(-18, -8);
-  ctx.quadraticCurveTo(-38, -4, -36, -22);
-  ctx.strokeStyle = line;
-  ctx.lineWidth = 3;
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(-36, -30);
-  ctx.lineTo(-41, -20);
-  ctx.lineTo(-31, -21);
-  ctx.closePath();
-  paint(ctx, palette.impHorn, 2, line);
-
-  jelly(ctx, slimePath(ctx, w, h), w, h, m.color, line, m.flash);
-  for (const side of [-1, 1]) {
-    ctx.beginPath();
-    ctx.moveTo(side * 9, -h + 4);
-    ctx.quadraticCurveTo(side * 16, -h - 14, side * 22, -h - 12);
-    ctx.quadraticCurveTo(side * 20, -h - 2, side * 18, -h + 8);
-    ctx.closePath();
-    paint(ctx, palette.impHorn, 2.2, darken(palette.impHorn, 0.4));
-  }
-  animeEyes(ctx, -h * 0.5, 11, 6.5, 8, '#E0466E', line, face);
-  if (!face.hurt && !face.blink) {
-    // Smug half-lids
-    for (const side of [-1, 1]) {
-      ctx.beginPath();
-      ctx.moveTo(side * 11 - 7, -h * 0.5 - 3);
-      ctx.lineTo(side * 11 + 7, -h * 0.5 - 3 + side * 2);
-      ctx.strokeStyle = line;
-      ctx.lineWidth = 3;
-      ctx.stroke();
-    }
-  }
-  blush(ctx, -h * 0.28, 17);
-  mouth(ctx, -h * 0.2, face.hurt ? 'open' : 'fang', line);
-}
-
-function drawMushroom(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Face): void {
-  const stemLine = '#C9A08A';
-  const capLine = darken(m.color, 0.5);
-  // Stem (the face lives here)
-  const stem = (): void => {
-    ctx.beginPath();
-    ctx.moveTo(-20, -34);
-    ctx.quadraticCurveTo(-24, -8, -18, 0);
-    ctx.lineTo(18, 0);
-    ctx.quadraticCurveTo(24, -8, 20, -34);
-    ctx.closePath();
-  };
-  jelly(ctx, stem, 44, 34, palette.mushroomStem, stemLine, m.flash);
-  // Cap
-  const cap = (): void => {
-    ctx.beginPath();
-    ctx.moveTo(-34, -30);
-    ctx.bezierCurveTo(-36, -66, 36, -66, 34, -30);
-    ctx.quadraticCurveTo(0, -22, -34, -30);
-    ctx.closePath();
-  };
-  jelly(ctx, cap, 68, 40, m.color, capLine, m.flash);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
-  for (const [dx, dy, r] of [
-    [-18, -44, 5],
-    [4, -52, 6],
-    [20, -40, 4.5],
-    [-4, -38, 3.5],
+  const w = 64;
+  const h = 50;
+  const body = oozePath(ctx, w, h, Math.sin(m.time * 3 + m.seed) * 2);
+  grimBody(ctx, body, w, h, m.color, m.flash, '#D6F0A0');
+  // Bubbles and murk floating inside
+  ctx.save();
+  body();
+  ctx.clip();
+  for (const [bx, by, br] of [
+    [-18, -14, 5],
+    [16, -10, 3.5],
+    [6, -38, 3],
+    [-6, -8, 2.5],
   ]) {
-    circle(ctx, dx, dy, r);
+    const k = (m.time * 0.4 + bx * 0.05 + m.seed * 0.1) % 1;
+    circle(ctx, bx, by - k * 8, br);
+    ctx.fillStyle = rgba(shade(m.color, 0.5), 0.5);
+    ctx.fill();
+    circle(ctx, bx - br * 0.3, by - k * 8 - br * 0.3, br * 0.35);
+    ctx.fillStyle = 'rgba(220, 255, 200, 0.35)';
     ctx.fill();
   }
-  animeEyes(ctx, -19, 9, 5.5, 7, '#8C5A3C', stemLine, face);
-  blush(ctx, -10, 14);
-  mouth(ctx, -7, 'open', stemLine);
+  ctx.restore();
+  const eye = face.menace ? palette.menaceEye : '#E6FF5C';
+  glowEyes(ctx, [[-11, -h * 0.6, 5.5], [11, -h * 0.64, 6.5]], eye, face);
+  maw(ctx, 1, -h * 0.34, 32, 7, 5, face.hurt);
 }
 
+/** Shadow imp: a soot-colored gremlin with ragged bat wings, bone horns and a wide grin. */
+function drawImp(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Face): void {
+  const w = 50;
+  const h = 46;
+  const flap = Math.sin(m.time * 18 + m.seed) * 0.35;
+  for (const side of [-1, 1]) {
+    ctx.save();
+    ctx.translate(side * 16, -h * 0.62);
+    ctx.rotate(side * (0.25 + flap));
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(side * 12, -26);
+    ctx.lineTo(side * 40, -20);
+    ctx.lineTo(side * 31, -11);
+    ctx.lineTo(side * 35, -2);
+    ctx.lineTo(side * 23, -5);
+    ctx.lineTo(side * 21, 6);
+    ctx.lineTo(side * 9, 2);
+    ctx.closePath();
+    paint(ctx, '#2A1F35', 3.5, GRIM_LINE);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(side * 12, -26);
+    ctx.lineTo(side * 40, -20);
+    ctx.moveTo(side * 12, -26);
+    ctx.lineTo(side * 22, -4);
+    ctx.strokeStyle = '#6E5A86';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+  }
+  // Barbed tail
+  ctx.beginPath();
+  ctx.moveTo(-16, -8);
+  ctx.quadraticCurveTo(-40, -2, -38, -24);
+  ctx.strokeStyle = GRIM_LINE;
+  ctx.lineWidth = 5;
+  ctx.stroke();
+  ctx.strokeStyle = m.color;
+  ctx.lineWidth = 2.4;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-38, -34);
+  ctx.lineTo(-45, -20);
+  ctx.lineTo(-31, -22);
+  ctx.closePath();
+  paint(ctx, '#C9312F', 2.5, GRIM_LINE);
+
+  const body = (): void => {
+    ctx.beginPath();
+    ctx.moveTo(-w / 2, -4);
+    ctx.bezierCurveTo(-w / 2 - 2, -h * 0.6, -w * 0.42, -h * 0.9, -w * 0.32, -h - 8);
+    ctx.lineTo(-w * 0.14, -h + 2);
+    ctx.quadraticCurveTo(0, -h - 2, w * 0.14, -h + 2);
+    ctx.lineTo(w * 0.32, -h - 8);
+    ctx.bezierCurveTo(w * 0.42, -h * 0.9, w / 2 + 2, -h * 0.6, w / 2, -4);
+    ctx.quadraticCurveTo(w / 2, 1, w * 0.3, 1);
+    ctx.lineTo(-w * 0.3, 1);
+    ctx.quadraticCurveTo(-w / 2, 1, -w / 2, -4);
+    ctx.closePath();
+  };
+  grimBody(ctx, body, w, h, m.color, m.flash, '#E3B8FF');
+  // Curved bone horns
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(side * 6, -h + 1);
+    ctx.quadraticCurveTo(side * 8, -h - 16, side * 20, -h - 20);
+    ctx.quadraticCurveTo(side * 13, -h - 8, side * 14, -h + 3);
+    ctx.closePath();
+    paint(ctx, '#D8CDB4', 2.6, GRIM_LINE);
+  }
+  const eye = face.menace ? palette.menaceEye : '#FFB13B';
+  glowEyes(ctx, [[-10, -h * 0.55, 5.5], [10, -h * 0.55, 5.5]], eye, face);
+  maw(ctx, 0, -h * 0.3, 30, 6, 6, face.hurt);
+}
+
+/** Toxic shroom: dark blood-red cap with glowing poison spots, a gaping mouth on the stem. */
+function drawMushroom(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Face): void {
+  const stem = (): void => {
+    ctx.beginPath();
+    ctx.moveTo(-19, -34);
+    ctx.quadraticCurveTo(-25, -10, -20, 0);
+    ctx.quadraticCurveTo(0, 4, 20, 0);
+    ctx.quadraticCurveTo(25, -10, 19, -34);
+    ctx.closePath();
+  };
+  grimBody(ctx, stem, 44, 34, palette.mushroomStem, m.flash, '#F2EFD8');
+  // Drooping, uneven cap
+  const cap = (): void => {
+    ctx.beginPath();
+    ctx.moveTo(-36, -26);
+    ctx.bezierCurveTo(-40, -70, 38, -72, 37, -27);
+    ctx.quadraticCurveTo(30, -22, 24, -28);
+    ctx.quadraticCurveTo(14, -21, 4, -27);
+    ctx.quadraticCurveTo(-8, -20, -18, -27);
+    ctx.quadraticCurveTo(-28, -20, -36, -26);
+    ctx.closePath();
+  };
+  grimBody(ctx, cap, 72, 44, m.color, m.flash, '#FF9AA8');
+  // Glowing poison spots
+  const pulse = 0.7 + 0.3 * Math.sin(m.time * 3 + m.seed);
+  for (const [dx, dy, r] of [
+    [-18, -46, 5],
+    [5, -56, 6],
+    [21, -42, 4.5],
+    [-3, -38, 3.5],
+  ]) {
+    const glow = ctx.createRadialGradient(dx, dy, 0, dx, dy, r * 2.4);
+    glow.addColorStop(0, `rgba(180, 255, 110, ${0.55 * pulse})`);
+    glow.addColorStop(1, 'rgba(180, 255, 110, 0)');
+    ctx.fillStyle = glow;
+    circle(ctx, dx, dy, r * 2.4);
+    ctx.fill();
+    circle(ctx, dx, dy, r);
+    paint(ctx, '#C8FF7A', 2, GRIM_LINE);
+  }
+  const eye = face.menace ? palette.menaceEye : '#B8FF6A';
+  glowEyes(ctx, [[-8, -24, 4], [8, -25, 4]], eye, face);
+  // Gaping round maw
+  ellipse(ctx, 0, -11, 8, face.hurt ? 5 : 7);
+  paint(ctx, '#2A0F16', 2.5, GRIM_LINE);
+  ctx.fillStyle = '#EDE4CC';
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(side * 6, -16);
+    ctx.lineTo(side * 2, -16);
+    ctx.lineTo(side * 4, -11);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+const GRIM_LINE = '#17111C';
+
+/** A murky body with a heavy dark outline, a cold rim light on top and shadowed underside. */
+function grimBody(
+  ctx: CanvasRenderingContext2D,
+  path: () => void,
+  w: number,
+  h: number,
+  color: string,
+  flash: number,
+  rim: string,
+): void {
+  const g = ctx.createLinearGradient(0, -h, 0, 0);
+  g.addColorStop(0, lighten(color, 0.16));
+  g.addColorStop(0.55, color);
+  g.addColorStop(1, shade(color, 0.4));
+  path();
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.save();
+  path();
+  ctx.clip();
+  ctx.fillStyle = rgba(rim, 0.22);
+  ctx.beginPath();
+  ctx.ellipse(-w * 0.18, -h * 0.8, w * 0.22, h * 0.09, -0.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(8, 4, 12, 0.28)';
+  ellipse(ctx, w * 0.1, 0, w * 0.55, h * 0.28);
+  ctx.fill();
+  if (flash > 0) {
+    ctx.fillStyle = `rgba(255, 255, 255, ${flash * 0.85})`;
+    ctx.fillRect(-w, -h * 1.5, w * 2, h * 2);
+  }
+  ctx.restore();
+  path();
+  ctx.strokeStyle = GRIM_LINE;
+  ctx.lineWidth = 4.5;
+  ctx.stroke();
+}
+
+/** Small glowing eyes in dark sockets, with slit pupils and angry brows; X X when hurt. */
+function glowEyes(ctx: CanvasRenderingContext2D, eyes: Array<[number, number, number]>, color: string, face: Face): void {
+  for (const [x, y, r] of eyes) {
+    if (face.hurt) {
+      ctx.beginPath();
+      ctx.moveTo(x - r, y - r);
+      ctx.lineTo(x + r, y + r);
+      ctx.moveTo(x + r, y - r);
+      ctx.lineTo(x - r, y + r);
+      ctx.strokeStyle = GRIM_LINE;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      continue;
+    }
+    const glow = ctx.createRadialGradient(x, y, r * 0.3, x, y, r * 2.8);
+    glow.addColorStop(0, rgba(color, 0.55));
+    glow.addColorStop(1, rgba(color, 0));
+    ctx.fillStyle = glow;
+    circle(ctx, x, y, r * 2.8);
+    ctx.fill();
+    ellipse(ctx, x, y, r * 1.25, r * 1.05);
+    ctx.fillStyle = '#0E0A12';
+    ctx.fill();
+    const ix = x + face.lookX * r * 0.22;
+    const iy = y + face.lookY * r * 0.16;
+    ellipse(ctx, ix, iy, r * 0.78, r * 0.68);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ellipse(ctx, ix, iy, r * 0.17, r * 0.55);
+    ctx.fillStyle = '#0E0A12';
+    ctx.fill();
+    circle(ctx, ix - r * 0.28, iy - r * 0.26, r * 0.17);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.fill();
+    // Brow slanting down toward the middle
+    const side = x < 0 ? -1 : 1;
+    ctx.beginPath();
+    ctx.moveTo(x + side * r * 1.3, y - r * 1.5);
+    ctx.lineTo(x - side * r * 0.9, y - r * 0.9);
+    ctx.strokeStyle = GRIM_LINE;
+    ctx.lineWidth = 3.4;
+    ctx.stroke();
+  }
+}
+
+/** A dark crescent mouth lined with sharp teeth. */
+function maw(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, teeth: number, open: boolean): void {
+  const depth = open ? h * 2.6 : h * 2;
+  ctx.beginPath();
+  ctx.moveTo(x - w / 2, y);
+  ctx.quadraticCurveTo(x, y + depth, x + w / 2, y);
+  ctx.quadraticCurveTo(x, y + h * 0.5, x - w / 2, y);
+  ctx.closePath();
+  paint(ctx, '#2A0F16', 2.6, GRIM_LINE);
+  ctx.fillStyle = '#EDE4CC';
+  ctx.strokeStyle = GRIM_LINE;
+  ctx.lineWidth = 1.2;
+  for (let i = 0; i < teeth; i++) {
+    const t = (i + 0.5) / teeth;
+    const tx = x - w / 2 + w * t;
+    const curve = 1 - Math.pow(2 * t - 1, 2);
+    const top = y + h * 0.25 * curve;
+    const bottom = y + depth * 0.5 * curve;
+    const tw = (w / teeth) * 0.42;
+    ctx.beginPath();
+    ctx.moveTo(tx - tw, top);
+    ctx.lineTo(tx + tw, top);
+    ctx.lineTo(tx, top + Math.max(3, (bottom - top) * 0.55));
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+}
+
+/** Hollow knight: rusted, dented armor with only two cold lights inside, behind a cracked shield. */
 function drawKnight(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Face): void {
   const w = 64;
   const h = 56;
-  const line = darken(m.color, 0.5);
-  jelly(ctx, slimePath(ctx, w, h), w, h, m.color, line, m.flash);
-  // Helmet with a plume
-  ctx.beginPath();
-  ctx.moveTo(-26, -h * 0.62);
-  ctx.bezierCurveTo(-28, -h - 10, 28, -h - 10, 26, -h * 0.62);
-  ctx.quadraticCurveTo(0, -h * 0.7, -26, -h * 0.62);
-  ctx.closePath();
-  const steel = ctx.createLinearGradient(0, -h - 8, 0, -h * 0.6);
-  steel.addColorStop(0, '#FFFFFF');
-  steel.addColorStop(1, '#C7CCE6');
-  paint(ctx, steel, LINE, '#7A80A8');
-  ctx.beginPath();
-  ctx.moveTo(0, -h - 6);
-  ctx.quadraticCurveTo(-4, -h - 26, -18, -h - 22);
-  ctx.quadraticCurveTo(-8, -h - 14, 0, -h - 6);
-  ctx.closePath();
-  paint(ctx, palette.slimePink, 2.2, darken(palette.slimePink, 0.45));
-  animeEyes(ctx, -h * 0.45, 11, 6.5, 7.5, '#3A5BC8', line, face);
-  blush(ctx, -h * 0.24, 17);
-  mouth(ctx, -h * 0.18, face.hurt ? 'open' : 'cat', line);
-  // Round shield on the side it faces
+  const body = (): void => {
+    ctx.beginPath();
+    ctx.moveTo(-w / 2 + 2, -2);
+    ctx.lineTo(-w / 2 + 4, -h * 0.55);
+    ctx.quadraticCurveTo(-w / 2 + 2, -h * 0.8, -w * 0.3, -h * 0.84);
+    ctx.lineTo(w * 0.3, -h * 0.84);
+    ctx.quadraticCurveTo(w / 2 - 2, -h * 0.8, w / 2 - 4, -h * 0.55);
+    ctx.lineTo(w / 2 - 2, -2);
+    ctx.quadraticCurveTo(0, 3, -w / 2 + 2, -2);
+    ctx.closePath();
+  };
+  grimBody(ctx, body, w, h, m.color, m.flash, '#D6DCE8');
   ctx.save();
-  ctx.translate(26, -22);
-  circle(ctx, 0, 0, 17);
-  const g = ctx.createRadialGradient(-5, -5, 2, 0, 0, 17);
-  g.addColorStop(0, '#FFFFFF');
-  g.addColorStop(1, '#EDE7FF');
-  paint(ctx, g, 3, palette.gold);
+  body();
+  ctx.clip();
+  ctx.fillStyle = 'rgba(150, 72, 40, 0.5)';
+  for (const [rx, ry, rr] of [
+    [-16, -14, 7],
+    [12, -30, 5],
+    [20, -8, 6],
+  ]) {
+    ellipse(ctx, rx, ry, rr, rr * 0.7);
+    ctx.fill();
+  }
+  ctx.strokeStyle = GRIM_LINE;
+  ctx.lineWidth = 2.5;
   ctx.beginPath();
-  ctx.moveTo(0, -8);
-  ctx.lineTo(6, 0);
-  ctx.lineTo(0, 8);
-  ctx.lineTo(-6, 0);
+  ctx.moveTo(-w / 2, -h * 0.36);
+  ctx.quadraticCurveTo(0, -h * 0.3, w / 2, -h * 0.36);
+  ctx.stroke();
+  ctx.fillStyle = '#2A2830';
+  for (const rx of [-20, -7, 7, 20]) {
+    circle(ctx, rx, -h * 0.33, 2);
+    ctx.fill();
+  }
+  ctx.restore();
+  // Spiked pauldrons
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(side * 14, -h * 0.84);
+    ctx.quadraticCurveTo(side * 34, -h * 0.9, side * 34, -h * 0.62);
+    ctx.lineTo(side * 40, -h * 0.98);
+    ctx.lineTo(side * 26, -h * 0.9);
+    ctx.closePath();
+    paint(ctx, shade(m.color, 0.15), 3, GRIM_LINE);
+  }
+  // Bucket helm with a T-visor and a dent
+  const helm = (): void => {
+    ctx.beginPath();
+    ctx.moveTo(-19, -h * 0.74);
+    ctx.lineTo(-21, -h - 6);
+    ctx.quadraticCurveTo(-4, -h - 18, 4, -h - 14);
+    ctx.lineTo(8, -h - 10);
+    ctx.quadraticCurveTo(16, -h - 14, 21, -h - 6);
+    ctx.lineTo(19, -h * 0.74);
+    ctx.closePath();
+  };
+  helm();
+  const steel = ctx.createLinearGradient(0, -h - 16, 0, -h * 0.74);
+  steel.addColorStop(0, '#8A909C');
+  steel.addColorStop(1, '#4C515C');
+  ctx.fillStyle = steel;
+  ctx.fill();
+  if (m.flash > 0) {
+    ctx.fillStyle = `rgba(255, 255, 255, ${m.flash * 0.85})`;
+    ctx.fill();
+  }
+  ctx.strokeStyle = GRIM_LINE;
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.fillStyle = '#0E0A12';
+  ctx.fillRect(-14, -h * 0.98, 28, 6);
+  ctx.fillRect(-3, -h * 0.98, 6, 15);
+  const eye = face.menace ? palette.menaceEye : '#7CF0D0';
+  for (const side of [-1, 1]) {
+    const ex = side * 8;
+    const ey = -h * 0.98 + 3;
+    const g = ctx.createRadialGradient(ex, ey, 0, ex, ey, 11);
+    g.addColorStop(0, rgba(eye, face.hurt ? 0.3 : 0.85));
+    g.addColorStop(1, rgba(eye, 0));
+    ctx.fillStyle = g;
+    circle(ctx, ex, ey, 11);
+    ctx.fill();
+    ctx.fillStyle = face.hurt ? '#556' : '#F2FFFC';
+    ctx.fillRect(ex - 3, ey - 1.5, 6, 3);
+  }
+  // Rusted kite shield with a crack through it
+  ctx.save();
+  ctx.translate(27, -22);
+  ctx.beginPath();
+  ctx.moveTo(-14, -16);
+  ctx.lineTo(14, -16);
+  ctx.quadraticCurveTo(15, 6, 0, 20);
+  ctx.quadraticCurveTo(-15, 6, -14, -16);
   ctx.closePath();
-  paint(ctx, '#B48CFF', 1.8, '#6F55C9');
+  const sg = ctx.createLinearGradient(0, -16, 0, 20);
+  sg.addColorStop(0, '#7A6452');
+  sg.addColorStop(1, '#4A3B30');
+  paint(ctx, sg, 4, GRIM_LINE);
+  ctx.beginPath();
+  ctx.moveTo(-9, -11);
+  ctx.lineTo(9, -11);
+  ctx.quadraticCurveTo(9, 4, 0, 13);
+  ctx.quadraticCurveTo(-9, 4, -9, -11);
+  ctx.strokeStyle = '#9C8462';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(4, -16);
+  ctx.lineTo(0, -6);
+  ctx.lineTo(5, 0);
+  ctx.lineTo(1, 9);
+  ctx.strokeStyle = GRIM_LINE;
+  ctx.lineWidth = 2.2;
+  ctx.stroke();
   ctx.restore();
 }
 
+/** Boss: the Rot King, a huge crimson ooze with three eyes, a crooked rusted crown and a sword stuck in it. */
 function drawKing(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Face): void {
-  const w = 62;
-  const h = 54;
-  const line = darken(m.color, 0.5);
-  jelly(ctx, slimePath(ctx, w, h), w, h, m.color, line, m.flash);
-  crown(ctx, 0, -h + 2, 16, palette.crown);
-  animeEyes(ctx, -h * 0.48, 12, 7.5, 9, darken(m.color, 0.4), line, face);
-  // Proud little mustache
-  if (!face.hurt) {
-    ctx.beginPath();
-    ctx.moveTo(0, -h * 0.25);
-    ctx.quadraticCurveTo(-8, -h * 0.2, -14, -h * 0.28);
-    ctx.moveTo(0, -h * 0.25);
-    ctx.quadraticCurveTo(8, -h * 0.2, 14, -h * 0.28);
-    ctx.strokeStyle = line;
-    ctx.lineWidth = 3;
-    ctx.stroke();
+  const w = 66;
+  const h = 56;
+  const body = oozePath(ctx, w, h, Math.sin(m.time * 2.5 + m.seed) * 2.5);
+  // A rusted sword stuck in its side
+  ctx.save();
+  ctx.translate(-26, -30);
+  ctx.rotate(-0.9);
+  ctx.beginPath();
+  ctx.rect(-3, -34, 6, 30);
+  paint(ctx, '#8E8A86', 2.5, GRIM_LINE);
+  ctx.beginPath();
+  ctx.rect(-9, -6, 18, 4);
+  paint(ctx, '#5E4A36', 2.2, GRIM_LINE);
+  ctx.restore();
+  grimBody(ctx, body, w, h, m.color, m.flash, '#FFB0C0');
+  // Bones floating inside
+  ctx.save();
+  body();
+  ctx.clip();
+  ctx.strokeStyle = 'rgba(230, 210, 190, 0.35)';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(10, -14);
+  ctx.lineTo(24, -20);
+  ctx.moveTo(-14, -10);
+  ctx.lineTo(-4, -6);
+  ctx.stroke();
+  ctx.restore();
+  // Heavy crown, slipped to one side
+  ctx.save();
+  ctx.translate(5, -h + 3);
+  ctx.rotate(0.16);
+  ctx.beginPath();
+  ctx.moveTo(-18, 2);
+  ctx.lineTo(-20, -14);
+  ctx.lineTo(-10, -6);
+  ctx.lineTo(-4, -20);
+  ctx.lineTo(3, -7);
+  ctx.lineTo(11, -18);
+  ctx.lineTo(14, -5);
+  ctx.lineTo(21, -13);
+  ctx.lineTo(19, 2);
+  ctx.closePath();
+  paint(ctx, '#A8842C', 3.5, GRIM_LINE);
+  ctx.fillStyle = '#5A1020';
+  for (const gx of [-10, 3, 13]) {
+    circle(ctx, gx, -2, 2.6);
+    ctx.fill();
   }
-  blush(ctx, -h * 0.3, 20);
-  mouth(ctx, -h * 0.16, face.hurt ? 'open' : 'cat', line);
+  ctx.restore();
+  glowEyes(ctx, [[-14, -h * 0.56, 6.5], [13, -h * 0.58, 7], [-1, -h * 0.8, 4]], palette.menaceEye, face);
+  maw(ctx, 0, -h * 0.34, 42, 8, 8, face.hurt);
+  // Drool
+  ctx.beginPath();
+  ctx.moveTo(12, -h * 0.22);
+  ctx.quadraticCurveTo(14, -h * 0.1, 12, -h * 0.04);
+  ctx.quadraticCurveTo(10, -h * 0.1, 10, -h * 0.2);
+  ctx.closePath();
+  paint(ctx, '#B6F25A', 2, GRIM_LINE);
 }
 
+/** Boss: the Bat Queen, a violet ooze with great torn wings, an iron thorn crown and a fanged smirk. */
 function drawQueen(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Face): void {
   const w = 62;
   const h = 54;
-  const line = darken(m.color, 0.5);
-  // Dark bat wings
   const flap = Math.sin(m.time * 3) * 0.12;
   for (const side of [-1, 1]) {
     ctx.save();
@@ -661,272 +1062,381 @@ function drawQueen(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Face): v
     ctx.rotate(side * (0.25 + flap));
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    ctx.quadraticCurveTo(side * 22, -34, side * 44, -26);
-    ctx.lineTo(side * 38, -12);
-    ctx.lineTo(side * 46, -2);
-    ctx.lineTo(side * 34, 4);
-    ctx.lineTo(side * 36, 16);
-    ctx.quadraticCurveTo(side * 16, 6, 0, 10);
+    ctx.quadraticCurveTo(side * 22, -36, side * 48, -28);
+    ctx.lineTo(side * 40, -14);
+    ctx.lineTo(side * 50, -2);
+    ctx.lineTo(side * 36, 4);
+    ctx.lineTo(side * 40, 18);
+    ctx.lineTo(side * 26, 10);
+    ctx.quadraticCurveTo(side * 12, 8, 0, 10);
     ctx.closePath();
-    paint(ctx, '#2E1F4A', 2.4, '#140A26');
+    paint(ctx, '#22142E', 4, GRIM_LINE);
     ctx.beginPath();
     ctx.moveTo(side * 4, 2);
-    ctx.quadraticCurveTo(side * 20, -20, side * 38, -18);
-    ctx.strokeStyle = 'rgba(255, 90, 160, 0.6)';
+    ctx.quadraticCurveTo(side * 20, -22, side * 46, -26);
+    ctx.moveTo(side * 12, 0);
+    ctx.lineTo(side * 38, 2);
+    ctx.moveTo(side * 10, 4);
+    ctx.lineTo(side * 34, 14);
+    ctx.strokeStyle = 'rgba(255, 80, 150, 0.55)';
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.restore();
   }
-  jelly(ctx, slimePath(ctx, w, h), w, h, m.color, line, m.flash);
-  // Thorned crown with a heart gem
+  const body = oozePath(ctx, w, h, Math.sin(m.time * 2 + m.seed) * 2);
+  grimBody(ctx, body, w, h, m.color, m.flash, '#F0B0FF');
+  // Iron thorn crown with a glowing heart gem
   ctx.beginPath();
-  ctx.moveTo(-16, -h + 6);
+  ctx.moveTo(-17, -h + 6);
   for (let i = 0; i <= 6; i++) {
-    const x = -16 + (i * 32) / 6;
-    ctx.lineTo(x, -h - (i % 2 === 0 ? 14 : 3));
+    const x = -17 + (i * 34) / 6;
+    ctx.lineTo(x, -h - (i % 2 === 0 ? 16 : 3));
   }
-  ctx.lineTo(16, -h + 6);
+  ctx.lineTo(17, -h + 6);
   ctx.closePath();
-  paint(ctx, '#8C6A1E', 2, '#3A2A08');
+  paint(ctx, '#3A2A44', 3.5, GRIM_LINE);
+  const gem = ctx.createRadialGradient(0, -h - 4, 0, 0, -h - 4, 14);
+  gem.addColorStop(0, 'rgba(255, 60, 120, 0.7)');
+  gem.addColorStop(1, 'rgba(255, 60, 120, 0)');
+  ctx.fillStyle = gem;
+  circle(ctx, 0, -h - 4, 14);
+  ctx.fill();
   ctx.save();
   ctx.translate(0, -h - 5);
   ctx.beginPath();
   ctx.moveTo(0, 4);
   ctx.bezierCurveTo(-7, -2, -4, -8, 0, -4);
   ctx.bezierCurveTo(4, -8, 7, -2, 0, 4);
-  paint(ctx, palette.danger, 1.6, '#B0305C');
+  paint(ctx, '#FF3B6B', 2, GRIM_LINE);
   ctx.restore();
-  animeEyes(ctx, -h * 0.48, 12, 7.5, 9.5, '#7A4FD6', line, face);
-  if (!face.hurt && !face.blink && face.menace === 0) {
-    // Long lashes
-    for (const side of [-1, 1]) {
-      ctx.beginPath();
-      ctx.moveTo(side * 18, -h * 0.48 - 8);
-      ctx.lineTo(side * 23, -h * 0.48 - 13);
-      ctx.strokeStyle = line;
-      ctx.lineWidth = 2.4;
-      ctx.stroke();
-    }
+  glowEyes(ctx, [[-13, -h * 0.52, 7], [13, -h * 0.52, 7]], palette.menaceEye, face);
+  // Fanged smirk
+  ctx.beginPath();
+  ctx.moveTo(-12, -h * 0.26);
+  ctx.quadraticCurveTo(2, -h * 0.16, 14, -h * 0.3);
+  ctx.strokeStyle = GRIM_LINE;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  for (const fx of [-6, 6]) {
+    ctx.beginPath();
+    ctx.moveTo(fx - 3, -h * 0.23);
+    ctx.lineTo(fx + 3, -h * 0.23);
+    ctx.lineTo(fx, -h * 0.12);
+    ctx.closePath();
+    paint(ctx, '#EDE4CC', 1.6, GRIM_LINE);
   }
-  blush(ctx, -h * 0.28, 20);
-  mouth(ctx, -h * 0.18, face.hurt ? 'open' : 'cat', line);
-  // Orbiting sparkles
+  // Dark motes circling her
   for (let i = 0; i < 3; i++) {
     const a = m.time * 1.5 + (i * Math.PI * 2) / 3;
-    sparklePath(ctx, Math.cos(a) * 42, -h * 0.5 + Math.sin(a) * 16, 4 + 2 * Math.sin(m.time * 4 + i), 0);
-    ctx.fillStyle = '#FFFFFF';
+    sparklePath(ctx, Math.cos(a) * 44, -h * 0.5 + Math.sin(a) * 16, 4 + 2 * Math.sin(m.time * 4 + i), 0);
+    paint(ctx, '#FF5AA0', 1.5, GRIM_LINE);
+  }
+}
+
+// ---- Chapter 2: the misty marsh ----
+
+/** Blood leech: a ringed, glistening slug with a round sucker full of teeth. */
+function drawLeech(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Face): void {
+  const w = 56;
+  const h = 34;
+  const wave = Math.sin(m.time * 10 + m.seed) * 3;
+  const body = (): void => {
+    ctx.beginPath();
+    ctx.moveTo(-w / 2, -6);
+    ctx.bezierCurveTo(-w / 2, -h * 0.9 + wave, -w * 0.1, -h - 2, w * 0.18, -h + 2);
+    ctx.bezierCurveTo(w * 0.42, -h + 4, w / 2 + 4, -h * 0.5, w / 2, -6);
+    ctx.quadraticCurveTo(w / 2, 1, w * 0.3, 1);
+    ctx.lineTo(-w * 0.36, 1);
+    ctx.quadraticCurveTo(-w / 2 - 2, 1, -w / 2, -6);
+    ctx.closePath();
+  };
+  grimBody(ctx, body, w, h, m.color, m.flash, '#F0A0B0');
+  // Body rings
+  ctx.save();
+  body();
+  ctx.clip();
+  ctx.strokeStyle = 'rgba(14, 6, 10, 0.45)';
+  ctx.lineWidth = 2.5;
+  for (const x of [-14, -4, 6]) {
+    ctx.beginPath();
+    ctx.moveTo(x + wave * 0.3, -h - 4);
+    ctx.quadraticCurveTo(x - 4, -h * 0.5, x, 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+  // Round sucker mouth at the front
+  circle(ctx, w * 0.32, -h * 0.5, 9);
+  paint(ctx, '#2A0F16', 3, GRIM_LINE);
+  ctx.fillStyle = '#EDE4CC';
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    ctx.beginPath();
+    ctx.moveTo(w * 0.32 + Math.cos(a) * 8, -h * 0.5 + Math.sin(a) * 8);
+    ctx.lineTo(w * 0.32 + Math.cos(a + 0.25) * 3, -h * 0.5 + Math.sin(a + 0.25) * 3);
+    ctx.lineTo(w * 0.32 + Math.cos(a + 0.5) * 8, -h * 0.5 + Math.sin(a + 0.5) * 8);
+    ctx.closePath();
     ctx.fill();
   }
+  glowEyes(ctx, [[w * 0.08, -h * 0.78, 3.5], [w * 0.22, -h * 0.84, 3.5]], face.menace ? palette.menaceEye : '#FF6B6B', face);
+}
+
+/** Plague frog: squat and warty, with bulging glowing eyes and a pulsing poison throat. */
+function drawFrog(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Face): void {
+  const w = 56;
+  const h = 40;
+  const throat = 1 + 0.15 * Math.sin(m.time * 5 + m.seed);
+  // Back legs
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.ellipse(side * 22, -8, 12, 9, side * 0.4, 0, Math.PI * 2);
+    paint(ctx, shade(m.color, 0.15), 3.5, GRIM_LINE);
+  }
+  const body = (): void => {
+    ctx.beginPath();
+    ctx.moveTo(-w / 2, -4);
+    ctx.bezierCurveTo(-w / 2 - 2, -h * 0.8, -w * 0.25, -h, 0, -h);
+    ctx.bezierCurveTo(w * 0.25, -h, w / 2 + 2, -h * 0.8, w / 2, -4);
+    ctx.quadraticCurveTo(0, 3, -w / 2, -4);
+    ctx.closePath();
+  };
+  grimBody(ctx, body, w, h, m.color, m.flash, '#C8F0A0');
+  // Glowing warts
+  for (const [dx, dy, r] of [
+    [-14, -24, 3],
+    [10, -30, 2.5],
+    [18, -16, 2.5],
+    [-4, -14, 2],
+  ]) {
+    circle(ctx, dx, dy, r);
+    paint(ctx, '#B8FF6A', 1.5, GRIM_LINE);
+  }
+  // Swollen poison throat
+  ellipse(ctx, 0, -8, 12 * throat, 7 * throat);
+  paint(ctx, '#C8E86A', 2.5, GRIM_LINE);
+  // Bulging eyes on top
+  for (const side of [-1, 1]) {
+    circle(ctx, side * 13, -h + 2, 9);
+    paint(ctx, m.color, 3, GRIM_LINE);
+  }
+  glowEyes(ctx, [[-13, -h + 1, 5], [13, -h + 1, 5]], face.menace ? palette.menaceEye : '#FFD23B', face);
+  ctx.beginPath();
+  ctx.moveTo(-18, -h * 0.42);
+  ctx.quadraticCurveTo(0, -h * 0.28, 18, -h * 0.42);
+  ctx.strokeStyle = GRIM_LINE;
+  ctx.lineWidth = 3;
+  ctx.stroke();
+}
+
+/** Will-o'-wisp: a flickering ghost flame with a hollow skull face; swells before it bursts. */
+function drawWisp(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Face): void {
+  const swell = m.alert ? 1.25 + 0.1 * Math.sin(m.time * 40) : 1;
+  const flick = Math.sin(m.time * 14 + m.seed) * 3;
+  ctx.save();
+  ctx.translate(0, -26);
+  ctx.scale(swell, swell);
+  const glow = ctx.createRadialGradient(0, 0, 4, 0, 0, 40);
+  glow.addColorStop(0, rgba(m.color, m.alert ? 0.75 : 0.5));
+  glow.addColorStop(1, rgba(m.color, 0));
+  ctx.fillStyle = glow;
+  circle(ctx, 0, 0, 40);
+  ctx.fill();
+  const flame = (): void => {
+    ctx.beginPath();
+    ctx.moveTo(0, 18);
+    ctx.bezierCurveTo(-22, 16, -20, -6, -8, -14);
+    ctx.quadraticCurveTo(-6, -26 + flick, 2, -34 + flick);
+    ctx.quadraticCurveTo(4, -20, 10, -18 - flick);
+    ctx.bezierCurveTo(22, -6, 20, 16, 0, 18);
+    ctx.closePath();
+  };
+  flame();
+  const g = ctx.createLinearGradient(0, -34, 0, 18);
+  g.addColorStop(0, '#E8FFF8');
+  g.addColorStop(1, m.color);
+  ctx.fillStyle = g;
+  ctx.fill();
+  if (m.flash > 0) {
+    ctx.fillStyle = `rgba(255, 255, 255, ${m.flash * 0.85})`;
+    ctx.fill();
+  }
+  ctx.strokeStyle = GRIM_LINE;
+  ctx.lineWidth = 3.5;
+  ctx.stroke();
+  // Hollow skull face
+  for (const side of [-1, 1]) {
+    ellipse(ctx, side * 5.5, 0, 4, face.hurt ? 2 : 5);
+    ctx.fillStyle = '#0E2A26';
+    ctx.fill();
+  }
+  ctx.beginPath();
+  ctx.moveTo(-5, 9);
+  ctx.lineTo(-2, 7);
+  ctx.lineTo(0, 9);
+  ctx.lineTo(2, 7);
+  ctx.lineTo(5, 9);
+  ctx.strokeStyle = '#0E2A26';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** Moss golem: a hulking block of old temple stone, cracked and overgrown, with rune eyes. */
+function drawGolem(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Face): void {
+  const w = 66;
+  const h = 60;
+  // Boulder fists
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.ellipse(side * 34, -14, 13, 12, 0, 0, Math.PI * 2);
+    paint(ctx, shade(m.color, 0.1), 4, GRIM_LINE);
+  }
+  const body = (): void => {
+    ctx.beginPath();
+    ctx.moveTo(-w / 2 + 4, -2);
+    ctx.lineTo(-w / 2, -h * 0.6);
+    ctx.lineTo(-w * 0.34, -h);
+    ctx.lineTo(w * 0.3, -h - 2);
+    ctx.lineTo(w / 2, -h * 0.62);
+    ctx.lineTo(w / 2 - 4, -2);
+    ctx.closePath();
+  };
+  grimBody(ctx, body, w, h, m.color, m.flash, '#E8E4D8');
+  ctx.save();
+  body();
+  ctx.clip();
+  // Moss on top, cracks across the front
+  ctx.fillStyle = '#4F6B3A';
+  ctx.beginPath();
+  ctx.moveTo(-w / 2, -h * 0.7);
+  ctx.quadraticCurveTo(-10, -h * 0.82, 4, -h * 0.74);
+  ctx.quadraticCurveTo(20, -h * 0.86, w / 2, -h * 0.7);
+  ctx.lineTo(w / 2, -h - 4);
+  ctx.lineTo(-w / 2, -h - 4);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = GRIM_LINE;
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(-18, -8);
+  ctx.lineTo(-10, -22);
+  ctx.lineTo(-14, -32);
+  ctx.moveTo(16, -4);
+  ctx.lineTo(10, -16);
+  ctx.stroke();
+  ctx.restore();
+  // Glowing rune eyes and a rune on the chest
+  const eye = face.menace ? palette.menaceEye : '#8CFF9E';
+  for (const side of [-1, 1]) {
+    const ex = side * 12;
+    const ey = -h * 0.56;
+    const g = ctx.createRadialGradient(ex, ey, 0, ex, ey, 12);
+    g.addColorStop(0, rgba(eye, face.hurt ? 0.3 : 0.85));
+    g.addColorStop(1, rgba(eye, 0));
+    ctx.fillStyle = g;
+    circle(ctx, ex, ey, 12);
+    ctx.fill();
+    ctx.fillStyle = '#F2FFF4';
+    ctx.fillRect(ex - 5, ey - 2, 10, 4);
+  }
+  ctx.beginPath();
+  ctx.moveTo(0, -h * 0.36);
+  ctx.lineTo(-6, -h * 0.24);
+  ctx.lineTo(0, -h * 0.12);
+  ctx.lineTo(6, -h * 0.24);
+  ctx.closePath();
+  ctx.strokeStyle = rgba(eye, 0.8);
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+}
+
+/** Boss: the Plague Toad, a bloated marsh king with a glowing poison sac and a crown of bones. */
+function drawToad(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Face): void {
+  const w = 74;
+  const h = 54;
+  const sac = 1 + 0.12 * Math.sin(m.time * 3 + m.seed) + (m.alert ? 0.15 : 0);
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.ellipse(side * 30, -10, 16, 12, side * 0.45, 0, Math.PI * 2);
+    paint(ctx, shade(m.color, 0.15), 4, GRIM_LINE);
+  }
+  const body = (): void => {
+    ctx.beginPath();
+    ctx.moveTo(-w / 2, -4);
+    ctx.bezierCurveTo(-w / 2 - 4, -h * 0.85, -w * 0.25, -h - 2, 0, -h);
+    ctx.bezierCurveTo(w * 0.25, -h - 2, w / 2 + 4, -h * 0.85, w / 2, -4);
+    ctx.quadraticCurveTo(0, 4, -w / 2, -4);
+    ctx.closePath();
+  };
+  grimBody(ctx, body, w, h, m.color, m.flash, '#C8F0A0');
+  for (const [dx, dy, r] of [
+    [-24, -30, 4],
+    [-10, -40, 3],
+    [14, -38, 3.5],
+    [26, -24, 3],
+    [-28, -14, 2.5],
+  ]) {
+    const glow = ctx.createRadialGradient(dx, dy, 0, dx, dy, r * 3);
+    glow.addColorStop(0, 'rgba(180, 255, 110, 0.5)');
+    glow.addColorStop(1, 'rgba(180, 255, 110, 0)');
+    ctx.fillStyle = glow;
+    circle(ctx, dx, dy, r * 3);
+    ctx.fill();
+    circle(ctx, dx, dy, r);
+    paint(ctx, '#B8FF6A', 1.6, GRIM_LINE);
+  }
+  // Crown of bones
+  for (let i = -2; i <= 2; i++) {
+    ctx.save();
+    ctx.translate(i * 9, -h + 2);
+    ctx.rotate(i * 0.18);
+    ctx.beginPath();
+    ctx.moveTo(-3, 2);
+    ctx.lineTo(-2, -14 + Math.abs(i) * 3);
+    ctx.lineTo(2, -14 + Math.abs(i) * 3);
+    ctx.lineTo(3, 2);
+    ctx.closePath();
+    paint(ctx, '#E2D6BA', 2.2, GRIM_LINE);
+    ctx.restore();
+  }
+  for (const side of [-1, 1]) {
+    circle(ctx, side * 17, -h + 6, 11);
+    paint(ctx, m.color, 3.5, GRIM_LINE);
+  }
+  glowEyes(ctx, [[-17, -h + 5, 6.5], [17, -h + 5, 6.5]], palette.menaceEye, face);
+  maw(ctx, 0, -h * 0.42, 50, 8, 9, face.hurt);
+  // Glowing poison sac under the mouth
+  ellipse(ctx, 0, -10, 18 * sac, 10 * sac);
+  const g = ctx.createRadialGradient(-4, -14, 2, 0, -10, 18 * sac);
+  g.addColorStop(0, '#F2FFB0');
+  g.addColorStop(1, '#8CCB3A');
+  paint(ctx, g, 3, GRIM_LINE);
+}
+
+/** A lumpy, dripping ooze outline, shared by slimes and the slime bosses. */
+function oozePath(ctx: CanvasRenderingContext2D, w: number, h: number, wob: number): () => void {
+  return () => {
+    ctx.beginPath();
+    ctx.moveTo(-w / 2, -4);
+    ctx.bezierCurveTo(-w / 2 - 2, -h * 0.72, -w * 0.3, -h - 2 + wob, -w * 0.04, -h);
+    ctx.quadraticCurveTo(w * 0.08, -h - 7 - wob, w * 0.17, -h + 2);
+    ctx.bezierCurveTo(w * 0.4, -h + 2, w / 2 + 2, -h * 0.6, w / 2, -4);
+    ctx.quadraticCurveTo(w * 0.44, 1, w * 0.32, 0);
+    ctx.quadraticCurveTo(w * 0.26, 9, w * 0.19, 0);
+    ctx.lineTo(-w * 0.06, 0);
+    ctx.quadraticCurveTo(-w * 0.12, 11, -w * 0.19, 0);
+    ctx.quadraticCurveTo(-w * 0.43, 2, -w / 2, -4);
+    ctx.closePath();
+  };
 }
 
 // ---- Shared parts ----
 
-/** Glossy jelly body: soft vertical gradient, inner glow, highlight, hit flash. */
-function jelly(
-  ctx: CanvasRenderingContext2D,
-  path: () => void,
-  w: number,
-  h: number,
-  color: string,
-  line: string,
-  flash: number,
-): void {
-  const g = ctx.createLinearGradient(0, -h, 0, 0);
-  g.addColorStop(0, lighten(color, 0.45));
-  g.addColorStop(0.6, color);
-  g.addColorStop(1, darken(color, 0.1));
-  path();
-  ctx.fillStyle = g;
-  ctx.fill();
-  ctx.save();
-  path();
-  ctx.clip();
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-  ellipse(ctx, 0, -h * 0.12, w * 0.32, h * 0.13);
-  ctx.fill();
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
-  ctx.beginPath();
-  ctx.ellipse(-w * 0.2, -h * 0.72, w * 0.15, h * 0.08, -0.6, 0, Math.PI * 2);
-  ctx.fill();
-  circle(ctx, -w * 0.05, -h * 0.84, 2.4);
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fill();
-  if (flash > 0) {
-    ctx.fillStyle = `rgba(255, 255, 255, ${flash * 0.8})`;
-    ctx.fillRect(-w, -h * 1.5, w * 2, h * 2);
-  }
-  ctx.restore();
-  path();
-  ctx.strokeStyle = line;
-  ctx.lineWidth = LINE;
-  ctx.stroke();
-}
 
-/** Big glossy anime eyes; ^ ^ when blinking, > < when hurt. */
-function animeEyes(
-  ctx: CanvasRenderingContext2D,
-  y: number,
-  gap: number,
-  rx: number,
-  ry: number,
-  iris: string,
-  line: string,
-  face: Face,
-): void {
-  for (const side of [-1, 1]) {
-    const ex = side * gap;
-    ctx.strokeStyle = line;
-    if (face.hurt) {
-      ctx.beginPath();
-      ctx.moveTo(ex - side * rx * 0.7, y - ry * 0.55);
-      ctx.lineTo(ex + side * rx * 0.5, y);
-      ctx.lineTo(ex - side * rx * 0.7, y + ry * 0.55);
-      ctx.lineWidth = 2.6;
-      ctx.stroke();
-      continue;
-    }
-    if (face.blink) {
-      ctx.beginPath();
-      ctx.moveTo(ex - rx, y + ry * 0.2);
-      ctx.quadraticCurveTo(ex, y - ry * 0.9, ex + rx, y + ry * 0.2);
-      ctx.lineWidth = 2.6;
-      ctx.stroke();
-      continue;
-    }
-    const menacing = face.menace > 0;
-    const eyeIris = menacing ? palette.menaceEye : iris;
-    if (menacing) {
-      // Red glow around the eye.
-      const glow = ctx.createRadialGradient(ex, y, rx * 0.5, ex, y, rx * 2.2);
-      glow.addColorStop(0, 'rgba(255, 59, 107, 0.55)');
-      glow.addColorStop(1, 'rgba(255, 59, 107, 0)');
-      ctx.fillStyle = glow;
-      ctx.fillRect(ex - rx * 2.2, y - rx * 2.2, rx * 4.4, rx * 4.4);
-    }
-    ellipse(ctx, ex, y, rx, ry);
-    ctx.fillStyle = menacing ? '#FFE8EE' : '#FFFFFF';
-    ctx.fill();
-    ctx.save();
-    ellipse(ctx, ex, y, rx, ry);
-    ctx.clip();
-    const ix = ex + face.lookX * rx * 0.25;
-    const iy = y + face.lookY * ry * 0.2 + ry * 0.1;
-    const g = ctx.createLinearGradient(0, iy - ry, 0, iy + ry);
-    g.addColorStop(0, darken(eyeIris, 0.45));
-    g.addColorStop(1, lighten(eyeIris, 0.2));
-    ellipse(ctx, ix, iy, rx * 0.8, ry * 0.88);
-    ctx.fillStyle = g;
-    ctx.fill();
-    // Menacing eyes get a thin slit pupil instead of a round one.
-    ellipse(ctx, ix, iy + ry * 0.05, rx * (menacing ? 0.14 : 0.36), ry * (menacing ? 0.6 : 0.42));
-    ctx.fillStyle = darken(eyeIris, 0.7);
-    ctx.fill();
-    ellipse(ctx, ix - rx * 0.3, iy - ry * 0.38, rx * 0.32, ry * 0.25);
-    ctx.fillStyle = '#FFFFFF';
-    ctx.fill();
-    circle(ctx, ix + rx * 0.32, iy + ry * 0.36, rx * 0.15);
-    ctx.fill();
-    ctx.restore();
-    // Upper lash line
-    ctx.beginPath();
-    ctx.ellipse(ex, y, rx, ry, 0, Math.PI * 1.08, Math.PI * 1.92);
-    ctx.lineWidth = 3.2;
-    ctx.stroke();
-    if (menacing) {
-      // Angry brow slanting down toward the middle.
-      ctx.beginPath();
-      ctx.moveTo(ex + side * rx * 1.1, y - ry * 1.35);
-      ctx.lineTo(ex - side * rx * 0.7, y - ry * 0.75);
-      ctx.lineWidth = 4;
-      ctx.stroke();
-    }
-  }
-}
 
-function blush(ctx: CanvasRenderingContext2D, y: number, gap: number): void {
-  ctx.fillStyle = 'rgba(255, 120, 150, 0.38)';
-  for (const side of [-1, 1]) {
-    ellipse(ctx, side * gap, y, 5.5, 3);
-    ctx.fill();
-  }
-}
 
-function mouth(ctx: CanvasRenderingContext2D, y: number, kind: 'cat' | 'open' | 'fang', line: string): void {
-  ctx.strokeStyle = line;
-  ctx.lineWidth = 2.2;
-  if (kind === 'open') {
-    ellipse(ctx, 0, y + 2, 4, 5);
-    paint(ctx, '#FF7FA3', 2, line);
-    return;
-  }
-  ctx.beginPath();
-  ctx.moveTo(-6, y);
-  ctx.quadraticCurveTo(-3, y + 4, 0, y);
-  ctx.quadraticCurveTo(3, y + 4, 6, y);
-  ctx.stroke();
-  if (kind === 'fang') {
-    ctx.beginPath();
-    ctx.moveTo(2, y + 1);
-    ctx.lineTo(3.5, y + 5);
-    ctx.lineTo(5, y + 1);
-    ctx.closePath();
-    paint(ctx, '#FFFFFF', 1.4, line);
-  }
-}
 
-function leaf(ctx: CanvasRenderingContext2D, x: number, y: number, line: string): void {
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.quadraticCurveTo(x - 2, y - 8, x + 2, y - 10);
-  ctx.strokeStyle = line;
-  ctx.lineWidth = 2.2;
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(x + 2, y - 10);
-  ctx.quadraticCurveTo(x + 14, y - 18, x + 18, y - 8);
-  ctx.quadraticCurveTo(x + 8, y - 4, x + 2, y - 10);
-  ctx.closePath();
-  paint(ctx, '#7FD99A', 2, '#3F8F5A');
-}
 
-function bow(ctx: CanvasRenderingContext2D, x: number, y: number, color: string): void {
-  const line = darken(color, 0.45);
-  for (const side of [-1, 1]) {
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.lineTo(x + side * 11, y - 7);
-    ctx.lineTo(x + side * 11, y + 6);
-    ctx.closePath();
-    paint(ctx, color, 2, line);
-  }
-  circle(ctx, x, y, 3.2);
-  paint(ctx, lighten(color, 0.3), 1.8, line);
-}
 
-function droplet(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, line: string): void {
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.quadraticCurveTo(x - 4, y - 10, x + 6, y - 14);
-  ctx.quadraticCurveTo(x + 2, y - 6, x + 5, y);
-  ctx.closePath();
-  paint(ctx, lighten(color, 0.3), 2, line);
-}
-
-function crown(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, color: string): void {
-  ctx.beginPath();
-  ctx.moveTo(x - w, y);
-  ctx.lineTo(x - w, y - 12);
-  ctx.lineTo(x - w * 0.5, y - 5);
-  ctx.lineTo(x, y - 16);
-  ctx.lineTo(x + w * 0.5, y - 5);
-  ctx.lineTo(x + w, y - 12);
-  ctx.lineTo(x + w, y);
-  ctx.closePath();
-  paint(ctx, color, 2.2, '#B88A2A');
-  circle(ctx, x, y - 5, 2.6);
-  ctx.fillStyle = palette.danger;
-  ctx.fill();
-}
 
 function easeOutBack(t: number): number {
   const c1 = 1.70158;

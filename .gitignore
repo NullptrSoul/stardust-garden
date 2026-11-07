@@ -5,3 +5,5 @@ art-source/
 .claude/settings.local.json
 *.log
 .DS_Store
+# Local review screenshots from the capture helper; not needed in the repo.
+docs/screenshots/

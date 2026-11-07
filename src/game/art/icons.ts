@@ -95,6 +95,125 @@ export function drawWeaponIcon(ctx: CanvasRenderingContext2D, id: string, x: num
       ctx.fillStyle = '#FFE07A';
       ctx.fill();
       break;
+    case 'bow':
+      ctx.beginPath();
+      ctx.arc(-8, 0, 20, -Math.PI * 0.42, Math.PI * 0.42);
+      ctx.strokeStyle = palette.outline;
+      ctx.lineWidth = 6;
+      ctx.stroke();
+      ctx.strokeStyle = '#9FD8FF';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-8 + Math.cos(-Math.PI * 0.42) * 20, Math.sin(-Math.PI * 0.42) * 20);
+      ctx.lineTo(-8 + Math.cos(Math.PI * 0.42) * 20, Math.sin(Math.PI * 0.42) * 20);
+      ctx.strokeStyle = '#E8F6FF';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(-12, 0);
+      ctx.lineTo(16, 0);
+      ctx.strokeStyle = palette.outline;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(20, 0);
+      ctx.lineTo(13, -5);
+      ctx.lineTo(13, 5);
+      ctx.closePath();
+      paint(ctx, '#FFFFFF', 1.8, palette.outline);
+      break;
+    case 'scythe':
+      ctx.beginPath();
+      ctx.moveTo(-10, 20);
+      ctx.lineTo(6, -16);
+      ctx.strokeStyle = palette.outline;
+      ctx.lineWidth = 6;
+      ctx.stroke();
+      ctx.strokeStyle = '#7A5A3A';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(6, -16);
+      ctx.quadraticCurveTo(-14, -26, -22, -8);
+      ctx.quadraticCurveTo(-10, -16, 4, -10);
+      ctx.closePath();
+      paint(ctx, '#D9CCFF', 2.4, '#6F55C9');
+      break;
+    case 'spear':
+      ctx.beginPath();
+      ctx.moveTo(-16, 18);
+      ctx.lineTo(10, -8);
+      ctx.strokeStyle = palette.outline;
+      ctx.lineWidth = 6;
+      ctx.stroke();
+      ctx.strokeStyle = '#B8935A';
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(18, -16);
+      ctx.lineTo(6, -10);
+      ctx.lineTo(10, -4);
+      ctx.closePath();
+      paint(ctx, '#F4F0E6', 2.2, palette.outline);
+      ctx.beginPath();
+      ctx.moveTo(4, -4);
+      ctx.lineTo(8, 0);
+      ctx.strokeStyle = palette.danger;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      break;
+    case 'frost':
+      ctx.beginPath();
+      ctx.moveTo(0, -20);
+      ctx.lineTo(9, -4);
+      ctx.lineTo(5, 18);
+      ctx.lineTo(-5, 18);
+      ctx.lineTo(-9, -4);
+      ctx.closePath();
+      paint(ctx, '#E6F8FF', 2.4, '#3C8DB8');
+      ctx.beginPath();
+      ctx.moveTo(0, -16);
+      ctx.lineTo(0, 14);
+      ctx.strokeStyle = 'rgba(60, 141, 184, 0.5)';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      sparklePath(ctx, 10, -12, 5, 0);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fill();
+      break;
+    case 'flask':
+      ctx.beginPath();
+      ctx.moveTo(-5, -16);
+      ctx.lineTo(-5, -6);
+      ctx.quadraticCurveTo(-16, 0, -14, 10);
+      ctx.quadraticCurveTo(-12, 18, 0, 18);
+      ctx.quadraticCurveTo(12, 18, 14, 10);
+      ctx.quadraticCurveTo(16, 0, 5, -6);
+      ctx.lineTo(5, -16);
+      ctx.closePath();
+      paint(ctx, '#B6F25A', 2.4, '#3E6E28');
+      ctx.beginPath();
+      ctx.rect(-6, -20, 12, 6);
+      paint(ctx, '#C9B08A', 2, '#7A5A3A');
+      circle(ctx, -4, 8, 3);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+      ctx.fill();
+      break;
+    case 'spirit':
+      for (const [sx, sy, r] of [
+        [-8, 4, 10],
+        [10, -8, 7],
+      ]) {
+        sparklePath(ctx, sx, sy, r, 0);
+        paint(ctx, '#FFF3B0', 2, '#C9922E');
+      }
+      ctx.beginPath();
+      ctx.arc(0, 0, 18, 0.3, Math.PI * 1.4);
+      ctx.strokeStyle = 'rgba(255, 207, 102, 0.7)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      break;
   }
   ctx.restore();
 }

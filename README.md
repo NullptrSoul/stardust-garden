@@ -8,6 +8,7 @@
 - 角色图片出图要求：[docs/art-spec.md](docs/art-spec.md)
 
 - 参考笔记（土豆兄弟等同类游戏）：[docs/reference-notes.md](docs/reference-notes.md)
+- 优化路线（按优先级）：[docs/roadmap.md](docs/roadmap.md)
 
 当前进度：**可玩原型**。镜头跟随的漂浮花园岛场景，6 个角色（Q 版小人、头像、立绘，各有一个主动技能），6 种武器，15 个道具，8 种怪物外加精英和 Boss，星屑、回血糖果和宝箱，升级选卡，商店（购买、刷新、锁定、合成、卖武器），暂停和属性页，10 波完整流程，失败复活和通关。角色图是从参考图裁出来的临时素材，见 [docs/art-spec.md](docs/art-spec.md)。
 

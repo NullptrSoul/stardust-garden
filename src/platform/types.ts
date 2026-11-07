@@ -48,12 +48,35 @@ export interface NoiseOptions {
   q?: number;
 }
 
+/** A music note scheduled on the audio clock, played through the music bus. */
+export interface NoteOptions {
+  freq: number;
+  /** Start time on the audio clock (see PlatformAudio.time). */
+  at: number;
+  /** Seconds from start to the end of the release. */
+  duration: number;
+  type?: Waveform;
+  volume?: number;
+  /** Seconds to fade in. */
+  attack?: number;
+  /** Seconds of fade-out at the end. */
+  release?: number;
+  /** Low-pass cutoff in Hz; softens bright waveforms. */
+  cutoff?: number;
+  slideTo?: number;
+}
+
 export interface PlatformAudio {
   /** Call from a user gesture; hosts keep audio muted until then. */
   unlock(): void;
   tone(options: ToneOptions): void;
   /** Filtered white-noise burst: the "body" of hits and explosions. */
   noise(options: NoiseOptions): void;
+  /** Audio clock in seconds; 0 until audio is unlocked and running. */
+  time(): number;
+  note(options: NoteOptions): void;
+  /** Music bus volume, 0..1, faded smoothly. */
+  setMusicVolume(volume: number): void;
 }
 
 export interface PlatformStorage {

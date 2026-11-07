@@ -7,6 +7,7 @@
 // removes only background that touches the edge, so whites inside the outlines
 // survive. Small loose bits (hearts, sparkles, notes, the back-view sketches)
 // are dropped afterwards by keeping only big connected pieces.
+import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
@@ -168,6 +169,8 @@ async function cutout(src, box, opts) {
 
 const written = { chibi: [], portrait: [], avatar: [] };
 for (const job of JOBS) {
+  // Characters with layered art get their stills from tools/bake-rig.mjs.
+  if (existsSync(path.join('art-source/rig', job.id))) continue;
   const dir = path.join(OUT, job.id);
   await mkdir(dir, { recursive: true });
   const file = path.join(dir, `${job.kind}.png`);

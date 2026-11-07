@@ -1,16 +1,44 @@
 import { clamp, smoothing } from '../engine/math';
 import { Rng } from '../engine/rng';
 import { ButtonSet, type Button } from '../engine/ui';
-import type { Platform, PointerInput } from '../platform/types';
+import type { Platform, PlatformStorage, PointerInput } from '../platform/types';
 import { Sfx } from './audio';
 import { config } from './config';
 import { CHARACTERS } from './data/characters';
-import type { ItemDef } from './data/items';
+import { activeItemSets, type ItemDef } from './data/items';
+import { combosUnlockedBy } from './data/synergies';
+import { weaponById } from './data/weapons';
 import { Fx } from './fx';
 import * as L from './layout';
-import { Run, type UpgradeCard } from './run';
+import { Music } from './music';
+import { itemById, Run, type UpgradeCard } from './run';
+import { enemyById } from './data/enemies';
+import { ALL_STAGES, chapterOfStage, CHAPTERS, nextStage, STAR_CLEAR, STAR_HEALTHY, STAR_NO_REVIVE, stageById } from './data/stages';
+import { TALENTS, talentMods, talentShards } from './data/talents';
+import {
+  applySettings,
+  awardStars,
+  buyTalent,
+  loadSave,
+  resetProgress,
+  SETTING_KEYS,
+  stardustFor,
+  submitEndless,
+  writeSave,
+  type SaveData,
+} from './save';
 import * as S from './screens';
+import { bossesForWave, isEliteRush, isFinalWave, type GameMode } from './waves';
 import { SKILL_MAX, World, type Enemy } from './world';
+
+/** First-battle tips, shown one after another at the top of the screen. */
+export const TIPS = [
+  '按住屏幕任意位置拖动，角色就会移动',
+  '武器会自动攻击附近的敌人，专心走位',
+  '捡星屑升级，波次结束后去商店买装备',
+  '能量满了点右下角，放出角色技能',
+];
+const TIP_TIME = 3.8;
 
 /** Seconds the boss entrance banner holds the fight. */
 const BOSS_INTRO_TIME = 2.2;
@@ -19,11 +47,12 @@ const BOSS_INTRO_TIME = 2.2;
 const CUTIN_TIME = 0.8;
 
 /**
- * select: choose a character. battle: a wave is running. chest: open chests
- * after a wave. levelup: pick stat cards. shop: spend shards. pause: stats and
- * inventory. over: died. victory: beat wave 10.
+ * title: main menu. stages: chapter map. talents: spend stardust. select:
+ * choose a character. battle: a wave is running. chest: open chests after a
+ * wave. levelup: pick stat cards. shop: spend shards. pause: stats and
+ * inventory. over: died. victory: cleared the stage.
  */
-export type Scene = 'select' | 'battle' | 'chest' | 'levelup' | 'shop' | 'pause' | 'over' | 'victory';
+export type Scene = 'title' | 'stages' | 'talents' | 'settings' | 'select' | 'battle' | 'chest' | 'levelup' | 'shop' | 'pause' | 'over' | 'victory';
 
 const MOVE_KEYS: Record<string, [number, number]> = {
   w: [0, -1],
@@ -37,8 +66,25 @@ const MOVE_KEYS: Record<string, [number, number]> = {
 };
 
 export class Game {
-  scene: Scene = 'select';
+  scene: Scene = 'title';
   selected = 0;
+  mode: GameMode = 'stage';
+  /** Stage picked on the chapter map. */
+  stageId = ALL_STAGES[0].id;
+  /** Chapter shown on the chapter map. */
+  chapterIndex = 0;
+  /** Progress on this device: stars, stardust, talents, endless record. */
+  readonly save: SaveData;
+  /** The endless run that just ended set a new best. */
+  newRecord = false;
+  /** First-run tips shown at the top of the battle: which one, and seconds left on it. */
+  tutorial: { step: number; t: number } | null = null;
+  /** Where the settings screen returns to. */
+  private settingsFrom: 'title' | 'pause' = 'title';
+  /** The progress reset needs a second tap within a few seconds. */
+  resetArmedUntil = 0;
+  /** What the run that just ended earned, for the end screen. */
+  lastResult: { stars: number; newStars: number; stardust: number } | null = null;
   run: Run | null = null;
   upgradeCards: UpgradeCard[] = [];
   chestItem: ItemDef | null = null;
@@ -46,6 +92,8 @@ export class Game {
   selectedSlot = -1;
   /** Where the pause/stats screen returns to. */
   pausedFrom: 'battle' | 'shop' = 'battle';
+  /** The shop open before wave 1, for spending the stage's starting shards. */
+  preShop = false;
   time = 0;
   toast = { text: '', t: 0 };
   /** Floating virtual joystick, in design coordinates. */
@@ -62,21 +110,28 @@ export class Game {
   readonly fx = new Fx();
   readonly ui = new ButtonSet();
   readonly sfx: Sfx;
+  readonly music: Music;
   readonly world: World;
   private readonly rng: Rng;
   private readonly keys = new Set<string>();
   private pressed: Button | null = null;
   private pointerId: number | null = null;
   private skillWasReady = false;
+  private readonly storage: PlatformStorage;
 
   constructor(platform: Platform) {
     this.sfx = new Sfx(platform);
+    this.music = new Music(platform);
+    this.storage = platform.storage;
+    this.save = loadSave(this.storage);
+    applySettings(this.save.settings);
     this.rng = new Rng((Math.random() * 0xffffffff) >>> 0);
     this.world = new World(this.rng, this.fx, this.sfx);
-    this.enterSelect();
+    this.enterTitle();
   }
 
   update(dt: number): void {
+    this.updateMusic();
     this.toast.t = Math.max(0, this.toast.t - dt);
     const battle = this.scene === 'battle' && this.run !== null;
     // Freeze frames: everything holds still for a moment, effects included.
@@ -104,6 +159,7 @@ export class Game {
       }
       return;
     }
+    this.updateTutorial(dt);
     const move = this.moveInput();
     const event = this.world.update(dt, move.x, move.y);
     this.updateCamera(dt, false);
@@ -115,8 +171,21 @@ export class Game {
     const ready = this.world.energy >= SKILL_MAX;
     if (ready && !this.skillWasReady) this.showToast('技能就绪！');
     this.skillWasReady = ready;
+    if (this.world.bossFled) {
+      this.world.bossFled = false;
+      this.showToast('Boss 撤退了……');
+    }
     if (event === 'waveCleared') this.onWaveCleared();
     else if (event === 'playerDied') this.enterEnd('over');
+  }
+
+  /** Calm music in menus, driving music in a run, the boss theme while a boss is up. */
+  private updateMusic(): void {
+    this.music.setEnabled(config.music);
+    const menu = this.scene === 'title' || this.scene === 'stages' || this.scene === 'talents' || this.scene === 'select';
+    const boss = this.world.boss !== null && this.world.boss.alive && this.scene === 'battle';
+    this.music.setMood(menu || this.scene === 'over' || this.scene === 'victory' ? 'menu' : boss ? 'boss' : 'battle');
+    this.music.update();
   }
 
   /** Spends full energy on the character's skill, starting with the cut-in. */
@@ -244,24 +313,159 @@ export class Game {
 
   // ---- Scenes ----
 
+  private enterTitle(): void {
+    this.scene = 'title';
+    this.run = null;
+    this.ui.clear();
+    this.ui.add(S.TITLE_STORY, '章节冒险', 'primary', () => {
+      this.sfx.click();
+      this.enterStages();
+    });
+    this.ui.add(S.TITLE_ENDLESS, '无尽模式', 'secondary', () => {
+      this.sfx.click();
+      this.mode = 'endless';
+      this.enterSelect();
+    });
+    this.ui.add(S.TITLE_TALENTS, '天赋', 'secondary', () => {
+      this.sfx.click();
+      this.enterTalents();
+    });
+    this.ui.add(S.TITLE_SETTINGS, '设置', 'secondary', () => {
+      this.sfx.click();
+      this.enterSettings('title');
+    });
+  }
+
+  /** Chapter map, one chapter at a time. Every stage is open on the web build. */
+  private enterStages(chapterIndex?: number): void {
+    this.scene = 'stages';
+    this.run = null;
+    this.chapterIndex = chapterIndex ?? Math.max(0, chapterOfStage(stageById(this.stageId)) - 1);
+    const chapter = CHAPTERS[this.chapterIndex];
+    this.ui.clear();
+    this.ui.add(S.SELECT_BACK, '◀ 返回', 'secondary', () => {
+      this.sfx.click();
+      this.enterTitle();
+    });
+    if (this.chapterIndex > 0) {
+      this.ui.add(S.CHAPTER_PREV, '◀ 上一章', 'secondary', () => {
+        this.sfx.click();
+        this.enterStages(this.chapterIndex - 1);
+      });
+    }
+    if (this.chapterIndex < CHAPTERS.length - 1) {
+      this.ui.add(S.CHAPTER_NEXT, '下一章 ▶', 'secondary', () => {
+        this.sfx.click();
+        this.enterStages(this.chapterIndex + 1);
+      });
+    }
+    chapter.stages.forEach((stage, i) => {
+      this.ui.add(S.stageNode(i), '', 'card', () => {
+        this.sfx.click();
+        this.mode = 'stage';
+        this.stageId = stage.id;
+        this.enterSelect();
+      });
+    });
+  }
+
+  /** Spend stardust on permanent talents. */
+  private enterTalents(): void {
+    this.scene = 'talents';
+    this.run = null;
+    this.ui.clear();
+    this.ui.add(S.SELECT_BACK, '◀ 返回', 'secondary', () => {
+      this.sfx.click();
+      this.enterTitle();
+    });
+    TALENTS.forEach((talent, i) => {
+      this.ui.add(S.talentCard(i), '', 'card', () => {
+        const result = buyTalent(this.save, talent.id);
+        if (result === 'ok') {
+          writeSave(this.storage, this.save);
+          this.sfx.levelUp();
+          this.showToast(`${talent.name}升到 ${this.save.talents[talent.id]} 级`);
+        } else if (result === 'poor') this.fail('星尘不够');
+        else this.fail('已经满级了');
+      });
+    });
+  }
+
+  /** Sound and screen-effect switches, plus the progress reset. */
+  private enterSettings(from: 'title' | 'pause'): void {
+    this.settingsFrom = from;
+    this.scene = 'settings';
+    this.resetArmedUntil = 0;
+    this.ui.clear();
+    this.ui.add(S.SELECT_BACK, '◀ 返回', 'secondary', () => {
+      this.sfx.click();
+      if (this.settingsFrom === 'pause') this.enterPause(this.pausedFrom);
+      else this.enterTitle();
+    });
+    SETTING_KEYS.forEach((key, i) => {
+      this.ui.add(S.settingsRow(i), '', 'card', () => {
+        this.save.settings[key] = !this.save.settings[key];
+        applySettings(this.save.settings);
+        writeSave(this.storage, this.save);
+        this.sfx.click();
+      });
+    });
+    this.ui.add(S.SETTINGS_RESET, '清空进度', 'secondary', () => {
+      if (this.time < this.resetArmedUntil) {
+        resetProgress(this.save);
+        writeSave(this.storage, this.save);
+        this.resetArmedUntil = 0;
+        this.sfx.levelUp();
+        this.showToast('进度已清空');
+      } else {
+        this.resetArmedUntil = this.time + 3;
+        this.fail('再点一次确认清空');
+      }
+    });
+  }
+
   private enterSelect(): void {
     this.scene = 'select';
     this.run = null;
     this.ui.clear();
+    this.ui.add(S.SELECT_BACK, '◀ 返回', 'secondary', () => {
+      this.sfx.click();
+      if (this.mode === 'stage') this.enterStages();
+      else this.enterTitle();
+    });
     CHARACTERS.forEach((_, i) => {
       this.ui.add(S.selectCard(i), '', 'card', () => {
         this.selected = i;
         this.sfx.click();
       });
     });
-    this.ui.add(S.SELECT_START, '开始冒险', 'primary', () => this.startRun());
+    const label = this.mode === 'endless' ? '开始无尽' : `开始 ${this.stageId}`;
+    this.ui.add(S.SELECT_START, label, 'primary', () => this.startRun());
   }
 
   private startRun(): void {
     this.sfx.click();
-    this.run = new Run(CHARACTERS[this.selected], (this.rng.next() * 0xffffffff) >>> 0);
+    const stage = this.mode === 'stage' ? stageById(this.stageId) : undefined;
+    this.run = new Run(CHARACTERS[this.selected], (this.rng.next() * 0xffffffff) >>> 0, this.mode, {
+      stage,
+      bonus: talentMods(this.save.talents),
+      startShards: (stage?.startShards ?? 0) + talentShards(this.save.talents),
+    });
+    // Reset the arena now: the shop draws over it.
+    this.world.startWave(this.run);
+    // Later stages hand out starting shards; spend them before the first wave.
+    this.preShop = this.run.shards > 0;
+    if (this.preShop) this.enterShop();
+    else this.beginWave();
+  }
+
+  /** Starts the run's current wave. */
+  private beginWave(): void {
+    if (!this.run) return;
     this.world.startWave(this.run);
     this.enterBattle(true);
+    // First run on this device: walk through the controls.
+    if (this.run.wave === 1 && !this.save.tips.includes('battle')) this.tutorial = { step: 0, t: TIP_TIME };
   }
 
   private enterBattle(newWave: boolean): void {
@@ -277,7 +481,14 @@ export class Game {
       this.bossIntro = null;
       this.skillWasReady = false;
       this.updateCamera(0, true);
-      this.showToast(this.run.wave === config.waveCount ? '最终波：史莱姆女王' : `第 ${this.run.wave} 波`);
+      const run = this.run;
+      const bosses = bossesForWave(run);
+      const final = isFinalWave(run);
+      let text = final ? '最终波' : `第 ${run.wave} 波`;
+      if (isEliteRush(run)) text += ' · 精英怪潮！';
+      else if (bosses.length > 1) text += ' · 双 Boss 来袭！';
+      else if (bosses.length === 1) text += final ? `：${enemyById(bosses[0]).name}` : ' · Boss 来袭';
+      this.showToast(text);
     }
   }
 
@@ -285,7 +496,7 @@ export class Game {
     const run = this.run;
     if (!run) return;
     run.finishWave();
-    if (run.wave >= config.waveCount) {
+    if (isFinalWave(run)) {
       this.enterEnd('victory');
       return;
     }
@@ -344,6 +555,10 @@ export class Game {
     this.selectedSlot = -1;
     run.rollShop();
     this.buildShopButtons();
+    if (!this.save.tips.includes('shop')) {
+      this.markTip('shop');
+      this.toast = { text: '点卡片购买，点锁头留到下一波', t: 4 };
+    }
   }
 
   private buildShopButtons(): void {
@@ -353,13 +568,29 @@ export class Game {
     this.ui.clear();
     this.offerButtons = run.offers.map((offer, i) =>
       this.ui.add(S.offerCard(i), '', 'card', () => {
+        const unlocks = offer.kind === 'weapon' ? combosUnlockedBy(run.weapons.map((w) => w.id), offer.id) : [];
+        const setsBefore = activeItemSets(run.items).map((s) => s.id);
         const result = run.buy(offer);
+        const newSet = activeItemSets(run.items).find((s) => !setsBefore.includes(s.id));
         if (result === 'poor') this.fail('星屑不够');
         else if (result === 'full') this.fail('武器栏满了，先卖掉一把');
+        else if (result === 'max') this.fail('这件道具已经带满了');
         else if (result === 'merged') {
           this.sfx.levelUp();
-          this.showToast('合成升级！');
-        } else if (result === 'bought') this.sfx.buy();
+          // Merging into III or IV unlocks that tier's trait.
+          const tier = offer.tier + 1;
+          const trait = tier >= 2 ? weaponById(offer.id).traits[tier - 2] : null;
+          this.showToast(trait ? `合成升级！获得特性「${trait.name}」` : '合成升级！');
+        } else if (result === 'bought') {
+          this.sfx.buy();
+          if (unlocks.length > 0) {
+            this.sfx.levelUp();
+            this.showToast(`联动激活「${unlocks.map((c) => c.name).join('」「')}」`);
+          } else if (newSet) {
+            this.sfx.levelUp();
+            this.showToast(`套装集齐「${newSet.name}」`);
+          }
+        }
         this.refreshShopButtons();
       }),
     );
@@ -410,11 +641,11 @@ export class Game {
         this.buildShopButtons();
       });
     }
-    this.ui.add(S.SHOP_NEXT, `第 ${run.wave + 1} 波 ▶`, 'primary', () => {
+    this.ui.add(S.SHOP_NEXT, `第 ${this.preShop ? 1 : run.wave + 1} 波 ▶`, 'primary', () => {
       this.sfx.click();
-      run.startNextWave();
-      this.world.startWave(run);
-      this.enterBattle(true);
+      if (this.preShop) this.preShop = false;
+      else run.startNextWave();
+      this.beginWave();
     });
     this.refreshShopButtons();
   }
@@ -424,7 +655,8 @@ export class Game {
     if (!run) return;
     run.offers.forEach((offer, i) => {
       const b = this.offerButtons[i];
-      if (b) b.disabled = offer.sold || run.shards < offer.price;
+      const capped = offer.kind === 'item' && run.atCap(itemById(offer.id));
+      if (b) b.disabled = offer.sold || capped || run.shards < offer.price;
     });
     for (const b of this.ui.list) {
       if (b.x === S.SHOP_REROLL.x && b.y === S.SHOP_REROLL.y) {
@@ -446,7 +678,11 @@ export class Game {
     this.stick.active = false;
     this.ui.clear();
     this.ui.add(S.PAUSE_RESUME, from === 'battle' ? '继续' : '返回商店', 'primary', () => this.leavePause());
-    this.ui.add(S.PAUSE_QUIT, '放弃本局', 'secondary', () => this.enterSelect());
+    this.ui.add(S.PAUSE_SETTINGS, '设置', 'secondary', () => {
+      this.sfx.click();
+      this.enterSettings('pause');
+    });
+    this.ui.add(S.PAUSE_QUIT, '放弃本局', 'secondary', () => (this.mode === 'stage' ? this.enterStages() : this.enterTitle()));
     this.sfx.click();
   }
 
@@ -461,6 +697,11 @@ export class Game {
     this.ui.clear();
     this.stick.active = false;
     this.toast.t = 0;
+    this.newRecord = false;
+    this.lastResult = null;
+    if (run) this.recordResult(run, scene === 'victory');
+    const backLabel = this.mode === 'stage' ? '回地图' : '回主界面';
+    const back = (): void => (this.mode === 'stage' ? this.enterStages() : this.enterTitle());
     if (scene === 'over' && run && !run.revived) {
       this.ui.add(S.END_PRIMARY, '看广告复活', 'ad', () => {
         // Ad placeholder: the web build grants the reward right away.
@@ -468,9 +709,65 @@ export class Game {
         this.world.revive();
         this.enterBattle(false);
       });
-      this.ui.add(S.END_SECONDARY, '重新选择角色', 'secondary', () => this.enterSelect());
+      this.ui.add(S.END_SECONDARY, backLabel, 'secondary', back);
+      return;
+    }
+    const next = scene === 'victory' && run?.stage ? nextStage(run.stage.id) : null;
+    if (next) {
+      this.ui.add(S.END_PRIMARY, `下一关 ${next.id} ▶`, 'primary', () => {
+        this.stageId = next.id;
+        this.enterSelect();
+      });
     } else {
-      this.ui.add(S.END_PRIMARY, scene === 'victory' ? '再来一局' : '重新选择角色', 'primary', () => this.enterSelect());
+      this.ui.add(S.END_PRIMARY, '再来一局', 'primary', () => this.enterSelect());
+    }
+    this.ui.add(S.END_SECONDARY, backLabel, 'secondary', back);
+  }
+
+  /** Stars, stardust and the endless record for a run that just ended. */
+  private recordResult(run: Run, cleared: boolean): void {
+    const wavesCleared = cleared ? run.wave : run.wave - 1;
+    let stars = 0;
+    let newStars = 0;
+    if (run.stage && cleared) {
+      const healthy = this.world.player.hp >= run.stats.maxHp * 0.5;
+      stars = STAR_CLEAR | (healthy ? STAR_HEALTHY : 0) | (run.revived ? 0 : STAR_NO_REVIVE);
+      newStars = awardStars(this.save, run.stage.id, stars);
+    }
+    if (run.mode === 'endless') {
+      const result = { wave: run.wave, kills: run.kills, character: run.character.id };
+      this.newRecord = submitEndless(this.save, result, !run.recorded);
+    }
+    // Waves already paid out before a revive don't pay again.
+    const stardust = stardustFor({
+      wavesCleared: Math.max(0, wavesCleared - run.paidWaves),
+      cleared,
+      newStars,
+      stageIndex: run.stage ? ALL_STAGES.indexOf(run.stage) : 0,
+    });
+    run.paidWaves = Math.max(run.paidWaves, wavesCleared);
+    run.recorded = true;
+    this.save.stardust += stardust;
+    writeSave(this.storage, this.save);
+    this.lastResult = { stars, newStars, stardust };
+  }
+
+  private markTip(id: string): void {
+    if (this.save.tips.includes(id)) return;
+    this.save.tips.push(id);
+    writeSave(this.storage, this.save);
+  }
+
+  private updateTutorial(dt: number): void {
+    const tip = this.tutorial;
+    if (!tip) return;
+    tip.t -= dt;
+    if (tip.t > 0) return;
+    tip.step++;
+    tip.t = TIP_TIME;
+    if (tip.step >= TIPS.length) {
+      this.tutorial = null;
+      this.markTip('battle');
     }
   }
 
@@ -491,7 +788,12 @@ export class Game {
     if (this.scene !== 'battle') return;
     const w = this.world;
     if (w.duration > 0) w.elapsed = w.duration;
-    else if (w.boss) w.boss.hp = 0;
+    else for (const b of w.bosses) b.hp = 0;
+  }
+
+  debugAddStardust(n: number): void {
+    this.save.stardust += n;
+    writeSave(this.storage, this.save);
   }
 
   debugFillSkill(): void {

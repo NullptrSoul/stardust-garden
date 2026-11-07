@@ -3,6 +3,7 @@ import { darken, lighten } from '../palette';
 import type { ImageSource } from '../../platform/types';
 import { roundRectPath } from '../../engine/ui';
 import { circle, ellipse, LINE, paint, sparklePath } from './draw';
+import { drawRig, type LoadedRig, type RigMotion } from './rig';
 
 export interface ChibiPose {
   x: number;
@@ -16,18 +17,27 @@ export interface ChibiPose {
   hurt: number;
   /** Semi-transparent while invulnerable. */
   ghost: boolean;
+  /** Kept by the caller so layered hair and cloth ease in and out of running. */
+  motion?: RigMotion;
 }
 
 /** Standing height at scale 1, in design units. */
 export const CHIBI_HEIGHT = 130;
 
 /**
- * Draws the character. Uses the character's own chibi image when it exists;
- * otherwise a code-drawn placeholder in the character's colors.
+ * Draws the character. Prefers the layered rig, then the single chibi image,
+ * then a code-drawn placeholder in the character's colors.
  */
-export function drawCharacter(ctx: CanvasRenderingContext2D, c: CharacterDef, p: ChibiPose, image: ImageSource | null): void {
+export function drawCharacter(
+  ctx: CanvasRenderingContext2D,
+  c: CharacterDef,
+  p: ChibiPose,
+  image: ImageSource | null,
+  rig: LoadedRig | null = null,
+): void {
   const run = p.moving ? p.time * 14 : 0;
-  const bob = p.moving ? Math.abs(Math.sin(run)) * 5 : Math.sin(p.time * 2.4) * 1.2;
+  // A rig breathes on its own, so it keeps its feet on the ground when idle.
+  const bob = p.moving ? Math.abs(Math.sin(run)) * (rig ? 3.5 : 5) : rig ? 0 : Math.sin(p.time * 2.4) * 1.2;
   ctx.save();
   ctx.translate(p.x, p.feetY);
   ctx.scale(p.scale, p.scale);
@@ -40,7 +50,13 @@ export function drawCharacter(ctx: CanvasRenderingContext2D, c: CharacterDef, p:
   if (p.hurt > 0) ctx.rotate(Math.sin(p.time * 60) * 0.06 * p.hurt);
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  if (image) {
+  if (rig) {
+    // The rig's height is measured to the top of the art, so it needs less
+    // headroom than chibi.png.
+    const s = (CHIBI_HEIGHT * 1.07) / rig.def.height;
+    ctx.scale(s, s);
+    drawRig(ctx, rig, p);
+  } else if (image) {
     const h = CHIBI_HEIGHT * 1.1;
     const w = (image.width / image.height) * h;
     ctx.drawImage(image, -w / 2, -h, w, h);

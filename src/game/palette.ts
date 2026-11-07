@@ -1,7 +1,8 @@
 /**
- * Chapter 1 palette: soft anime chibi style, "starlight courtyard".
- * Pastel lavender scene, thin colored lineart (never pure black), gold accents.
- * Rule from the design doc still holds: hue means element, brightness means charge.
+ * Menus and heroines: soft anime pastels with thin colored lineart and gold accents.
+ * Battlefield and monsters (since 2026-11-06): a ruined garden at dusk and
+ * corrupted creatures with thick dark outlines and glowing eyes, so the fight
+ * reads as dangerous and the bright heroines stand out against it.
  */
 export const palette = {
   /** Default lineart: deep indigo instead of black. */
@@ -11,20 +12,20 @@ export const palette = {
   bgTop: '#F4F1FF',
   bgBottom: '#D9D1F7',
 
-  // Floating garden island
-  // Dusk tones: darker and a bit more saturated, so monsters and effects pop.
-  skyTop: '#9C8AD6',
-  skyMid: '#A99CDC',
-  skyBottom: '#D7A6C8',
-  grassTop: '#96C795',
-  grassBottom: '#79B283',
-  grassEdge: '#B9DDAE',
-  grassLine: '#4E8160',
-  tuftDark: '#5E9A6C',
-  tuftLight: '#B8DDAE',
-  soilTop: '#C9A385',
-  soilBottom: '#97705A',
-  soilLine: '#6E5040',
+  // Battlefield: a ruined garden at dusk, floating over a dark void.
+  // Muted mid-tone earth so dark-outlined monsters and the bright heroines both read.
+  skyTop: '#120F19',
+  skyMid: '#1A1524',
+  skyBottom: '#251E30',
+  grassTop: '#6F6A55',
+  grassBottom: '#5E5947',
+  grassEdge: '#48433A',
+  grassLine: '#1E1A16',
+  tuftDark: '#454B35',
+  tuftLight: '#88845F',
+  soilTop: '#4A4038',
+  soilBottom: '#24201C',
+  soilLine: '#16120F',
   floor: '#DAD4F6',
   floorAlt: '#E3DEFA',
   gold: '#E2B65C',
@@ -40,19 +41,19 @@ export const palette = {
   barrier: '#B48CFF',
   danger: '#FF5C8A',
 
-  // Monsters stay pink / lilac / blue so they stand out on the green island.
-  slimeLilac: '#C5B0FF',
-  slimePink: '#FFB5D0',
-  slimeSky: '#A8D8FF',
-  bunny: '#FFF3F7',
-  twinA: '#C5B0FF',
-  twinB: '#FFB5D0',
-  cat: '#B7B0D6',
-  bud: '#FF9EC4',
+  // Corrupted monsters: murky bodies, thick dark outlines, glowing eyes.
+  slimeLilac: '#3E6E60',
+  slimePink: '#626E3C',
+  slimeSky: '#5C4A76',
+  bunny: '#6E625C',
+  twinA: '#5C4A76',
+  twinB: '#626E3C',
+  cat: '#2E2A38',
+  bud: '#F2C66B',
   leaf: '#7CCB8E',
-  imp: '#FFB59C',
+  imp: '#4C3B5E',
   impHorn: '#9C82E6',
-  knight: '#AEB9FF',
+  knight: '#5E6470',
   shieldGold: '#F2C65E',
 
   heroCloak: '#9AA6FF',
@@ -60,17 +61,23 @@ export const palette = {
   heroSkin: '#FFE3D3',
   staff: '#C9A35A',
 
-  mushroom: '#FF9FB0',
-  mushroomStem: '#FFF1E0',
+  mushroom: '#702E3E',
+  mushroomStem: '#B7B297',
   // Bosses are darker and more saturated than regular monsters: they should look dangerous.
-  king: '#D9578E',
+  king: '#6E1E34',
   darkKnight: '#3B3560',
-  queen: '#7A56D0',
+  queen: '#4A2C6E',
+  // Chapter 2 marsh monsters
+  leech: '#4E2C38',
+  frog: '#3F5A3A',
+  wisp: '#5FE0C8',
+  golem: '#6C6A62',
+  toad: '#3B5232',
   /** Glowing eyes of elites and bosses. */
   menaceEye: '#FF3B6B',
   aura: '#3A1F5C',
   crown: '#F7D46B',
-  enemyBullet: '#FF7BAC',
+  enemyBullet: '#B6F25A',
   shard: '#9FD8FF',
 
   cream: '#FFFFFF',
@@ -87,6 +94,11 @@ export function rgba(hex: string, alpha: number): string {
 /** Blend toward deep indigo; used for lineart in each shape's own hue. */
 export function darken(hex: string, amount: number): string {
   return mix(hex, '#2E2257', amount);
+}
+
+/** Blend toward near-black; for the grim monsters, where indigo would look too soft. */
+export function shade(hex: string, amount: number): string {
+  return mix(hex, '#0E0A12', amount);
 }
 
 export function lighten(hex: string, amount: number): string {

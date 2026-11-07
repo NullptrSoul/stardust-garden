@@ -1,13 +1,18 @@
 import { Rng } from '../../engine/rng';
 import type { Platform, Surface } from '../../platform/types';
+import type { ChapterTheme } from '../data/stages';
 import * as L from '../layout';
-import { darken, lighten, palette } from '../palette';
+import { lighten, palette } from '../palette';
 import { sparklePath } from './draw';
 
 /** Grass extends this far past the walkable arena on every side. */
 export const ISLAND_PAD = 80;
 /** Visible thickness of the island's soil under its bottom edge. */
 const CLIFF = 74;
+/** Chapter 2: grey-green marsh mud. */
+const MARSH = { top: '#58624F', bottom: '#4A5345', tuft: '#3E4A34', tuftLight: '#7A845C' };
+/** Faded flowers that survive in the ruined garden: muted, never candy-bright. */
+const DIM_FLOWERS = ['#8E7BAA', '#6F6492', '#A8946E', '#7E5A6E'];
 
 /** Screen backdrop for menus: soft lavender with arches and sparkles. */
 export function bakeBackdrop(platform: Platform): Surface {
@@ -53,7 +58,8 @@ export interface IslandSprite {
  * The floating garden island, painted once. Walkable ground is the arena;
  * around it a strip of grass with bushes, then a wobbly edge, soil and roots.
  */
-export function bakeIsland(platform: Platform): IslandSprite {
+export function bakeIsland(platform: Platform, theme: ChapterTheme = 'garden'): IslandSprite {
+  const marsh = theme === 'marsh';
   const pad = ISLAND_PAD;
   const w = L.ARENA.w + pad * 2;
   const h = L.ARENA.h + pad * 2 + CLIFF + 60;
@@ -77,7 +83,7 @@ export function bakeIsland(platform: Platform): IslandSprite {
     const x = rng.range(pad, w - pad);
     const top = cy + L.ARENA.h / 2 + pad * 0.4 + CLIFF;
     const len = rng.range(20, 60);
-    g.strokeStyle = rng.chance(0.5) ? palette.soilLine : '#7DB88B';
+    g.strokeStyle = rng.chance(0.5) ? palette.soilLine : '#3A3A2E';
     g.lineWidth = rng.range(2, 4);
     g.beginPath();
     g.moveTo(x, top);
@@ -98,7 +104,7 @@ export function bakeIsland(platform: Platform): IslandSprite {
   g.save();
   trace(CLIFF);
   g.clip();
-  g.strokeStyle = 'rgba(142, 108, 88, 0.35)';
+  g.strokeStyle = 'rgba(8, 6, 4, 0.35)';
   g.lineWidth = 3;
   for (let i = 1; i <= 3; i++) {
     g.beginPath();
@@ -108,7 +114,7 @@ export function bakeIsland(platform: Platform): IslandSprite {
     g.stroke();
   }
   for (let i = 0; i < 40; i++) {
-    g.fillStyle = rng.chance(0.5) ? 'rgba(255,255,255,0.25)' : 'rgba(110, 80, 64, 0.25)';
+    g.fillStyle = rng.chance(0.5) ? 'rgba(120, 110, 100, 0.18)' : 'rgba(0, 0, 0, 0.25)';
     g.beginPath();
     g.ellipse(rng.range(0, w), cy + L.ARENA.h / 2 + pad * 0.5 + rng.range(0, CLIFF), rng.range(3, 8), rng.range(2, 5), 0, 0, Math.PI * 2);
     g.fill();
@@ -117,8 +123,8 @@ export function bakeIsland(platform: Platform): IslandSprite {
 
   // Grass top
   const grass = g.createLinearGradient(0, 0, 0, h);
-  grass.addColorStop(0, palette.grassTop);
-  grass.addColorStop(1, palette.grassBottom);
+  grass.addColorStop(0, marsh ? MARSH.top : palette.grassTop);
+  grass.addColorStop(1, marsh ? MARSH.bottom : palette.grassBottom);
   trace();
   g.fillStyle = grass;
   g.fill();
@@ -126,14 +132,15 @@ export function bakeIsland(platform: Platform): IslandSprite {
   g.save();
   trace();
   g.clip();
-  // Soft light and shade patches, like evening light through leaves.
+  // Patches of darker dirt and paler worn ground, so the earth isn't flat.
   for (let i = 0; i < 60; i++) {
     const x = rng.range(0, w);
     const y = rng.range(0, h);
     const r = rng.range(80, 240);
     const light = rng.chance(0.45);
     const blob = g.createRadialGradient(x, y, 0, x, y, r);
-    blob.addColorStop(0, light ? 'rgba(255, 240, 210, 0.13)' : 'rgba(40, 90, 70, 0.16)');
+    if (marsh) blob.addColorStop(0, light ? 'rgba(90, 130, 120, 0.16)' : 'rgba(10, 20, 18, 0.25)');
+    else blob.addColorStop(0, light ? 'rgba(170, 160, 125, 0.12)' : 'rgba(25, 20, 15, 0.2)');
     blob.addColorStop(1, 'rgba(255, 255, 255, 0)');
     g.fillStyle = blob;
     g.fillRect(x - r, y - r, r * 2, r * 2);
@@ -148,14 +155,20 @@ export function bakeIsland(platform: Platform): IslandSprite {
   drawPath(g, cx + 30, cy - 200, cx + 260, ay + 40, rng);
   drawPath(g, cx + 200, cy + 40, ax + aw - 40, cy + 220, rng);
   drawPath(g, cx - 200, cy - 40, ax + 40, cy - 260, rng);
-  drawFlowerBed(g, ax + aw * 0.2, ay + ah * 0.16, '#FFC7DD', rng);
-  drawFlowerBed(g, ax + aw * 0.82, ay + ah * 0.34, '#D9C8FF', rng);
-  drawFlowerBed(g, ax + aw * 0.22, ay + ah * 0.7, '#FFE58A', rng);
-  drawFlowerBed(g, ax + aw * 0.76, ay + ah * 0.86, '#FFFFFF', rng);
+  const beds: Array<[number, number]> = [
+    [0.2, 0.16],
+    [0.82, 0.34],
+    [0.22, 0.7],
+    [0.76, 0.86],
+  ];
+  beds.forEach(([fx, fy], i) => {
+    if (marsh) drawPool(g, ax + aw * fx, ay + ah * fy, rng);
+    else drawFlowerBed(g, ax + aw * fx, ay + ah * fy, DIM_FLOWERS[[0, 3, 2, 1][i]], rng);
+  });
   drawRuins(g, ax + aw * 0.74, ay + ah * 0.12, rng);
   drawRuins(g, ax + aw * 0.16, ay + ah * 0.44, rng);
   drawRuins(g, ax + aw * 0.6, ay + ah * 0.66, rng);
-  scatter(g, rng, w, h);
+  scatter(g, rng, w, h, marsh);
   g.restore();
 
   // Rim: bright lip, then lineart.
@@ -168,7 +181,7 @@ export function bakeIsland(platform: Platform): IslandSprite {
   g.stroke();
 
   // Flowering bushes in the strip between the walkable ground and the edge.
-  drawRimBushes(g, rng, pad);
+  drawRimBushes(g, rng, pad, marsh);
   return sprite;
 }
 
@@ -200,7 +213,7 @@ function drawPlaza(g: CanvasRenderingContext2D, cx: number, cy: number, rng: Rng
   for (let i = 0; i < 26; i++) {
     const a = rng.range(0, Math.PI * 2);
     const r = rng.range(0, 60);
-    flower(g, cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.85, rng.range(0.8, 1.2), pick(rng, ['#FFFFFF', '#FFC7DD', '#D9C8FF', '#FFE58A']));
+    flower(g, cx + Math.cos(a) * r, cy + Math.sin(a) * r * 0.85, rng.range(0.8, 1.2), pick(rng, DIM_FLOWERS));
   }
 }
 
@@ -237,28 +250,28 @@ function stone(g: CanvasRenderingContext2D, x: number, y: number, r: number, rng
     g.closePath();
   };
   shape(3);
-  g.fillStyle = 'rgba(80, 120, 90, 0.16)';
+  g.fillStyle = 'rgba(15, 12, 10, 0.3)';
   g.fill();
   shape(0);
   const s = g.createLinearGradient(x, y - r, x, y + r);
-  s.addColorStop(0, '#F6F1E7');
-  s.addColorStop(1, '#E3DACB');
+  s.addColorStop(0, '#A29C8E');
+  s.addColorStop(1, '#7C766A');
   g.fillStyle = s;
   g.fill();
-  g.strokeStyle = 'rgba(150, 130, 110, 0.35)';
-  g.lineWidth = 1.6;
+  g.strokeStyle = '#2A2621';
+  g.lineWidth = 2;
   g.stroke();
-  // Moss and a grass blade creeping over the edge keep it from looking pasted on.
-  g.fillStyle = 'rgba(150, 200, 150, 0.45)';
+  // Moss creeping over the edge keeps it from looking pasted on.
+  g.fillStyle = 'rgba(70, 82, 52, 0.55)';
   g.beginPath();
   g.ellipse(x - r * 0.4, y + r * 0.25, r * 0.35, r * 0.15, 0, 0, Math.PI * 2);
   g.fill();
 }
 
-/** A round bed of one flower color, rimmed with small stones. */
+/** An overgrown, withered flower bed: dark soil, dead stalks, a few faded blooms. */
 function drawFlowerBed(g: CanvasRenderingContext2D, x: number, y: number, petal: string, rng: Rng): void {
   const r = rng.range(70, 95);
-  g.fillStyle = 'rgba(50, 100, 70, 0.28)';
+  g.fillStyle = 'rgba(30, 24, 18, 0.4)';
   g.beginPath();
   g.ellipse(x, y, r, r * 0.75, 0, 0, Math.PI * 2);
   g.fill();
@@ -271,13 +284,13 @@ function drawFlowerBed(g: CanvasRenderingContext2D, x: number, y: number, petal:
     const d = Math.sqrt(rng.next()) * (r - 10);
     const fx = x + Math.cos(a) * d;
     const fy = y + Math.sin(a) * d * 0.75;
-    g.strokeStyle = '#4E8160';
+    g.strokeStyle = '#3B3A2A';
     g.lineWidth = 2;
     g.beginPath();
     g.moveTo(fx, fy + 6);
-    g.lineTo(fx, fy);
+    g.lineTo(fx + rng.range(-3, 3), fy - 4);
     g.stroke();
-    flower(g, fx, fy, rng.range(1, 1.4), petal);
+    if (rng.chance(0.3)) flower(g, fx, fy, rng.range(0.9, 1.2), petal);
   }
 }
 
@@ -291,9 +304,9 @@ function drawRuins(g: CanvasRenderingContext2D, x: number, y: number, rng: Rng):
       const ty = y + j * (tile * 0.7 + 4) + rng.range(-3, 3);
       g.beginPath();
       g.rect(tx - tile / 2, ty - tile * 0.35, tile, tile * 0.7);
-      g.fillStyle = rng.chance(0.5) ? '#D9D0C2' : '#CFC5B5';
+      g.fillStyle = rng.chance(0.5) ? '#8E897E' : '#817C71';
       g.fill();
-      g.strokeStyle = 'rgba(110, 90, 80, 0.45)';
+      g.strokeStyle = 'rgba(25, 22, 18, 0.75)';
       g.lineWidth = 1.6;
       g.stroke();
       if (rng.chance(0.4)) {
@@ -309,28 +322,28 @@ function drawRuins(g: CanvasRenderingContext2D, x: number, y: number, rng: Rng):
   g.save();
   g.translate(x + 70, y + 70);
   g.rotate(rng.range(-0.5, 0.5));
-  g.fillStyle = 'rgba(40, 70, 50, 0.25)';
+  g.fillStyle = 'rgba(15, 12, 10, 0.35)';
   g.beginPath();
   g.ellipse(4, 14, 92, 16, 0, 0, Math.PI * 2);
   g.fill();
   g.beginPath();
   g.rect(-86, -16, 172, 32);
   const col = g.createLinearGradient(0, -16, 0, 16);
-  col.addColorStop(0, '#EFE8DC');
-  col.addColorStop(1, '#C9BEAE');
+  col.addColorStop(0, '#A8A296');
+  col.addColorStop(1, '#6E695F');
   g.fillStyle = col;
   g.fill();
-  g.strokeStyle = 'rgba(110, 90, 80, 0.55)';
-  g.lineWidth = 2;
+  g.strokeStyle = '#221E1A';
+  g.lineWidth = 2.5;
   g.stroke();
-  g.strokeStyle = 'rgba(110, 90, 80, 0.3)';
+  g.strokeStyle = 'rgba(25, 22, 18, 0.45)';
   for (let k = -60; k <= 60; k += 30) {
     g.beginPath();
     g.moveTo(k, -16);
     g.lineTo(k, 16);
     g.stroke();
   }
-  g.fillStyle = 'rgba(120, 180, 120, 0.55)';
+  g.fillStyle = 'rgba(70, 82, 52, 0.6)';
   g.beginPath();
   g.ellipse(-50, 10, 26, 8, 0, 0, Math.PI * 2);
   g.fill();
@@ -338,7 +351,7 @@ function drawRuins(g: CanvasRenderingContext2D, x: number, y: number, rng: Rng):
 }
 
 /** Many small, low-contrast details: they give texture without hurting readability. */
-function scatter(g: CanvasRenderingContext2D, rng: Rng, w: number, h: number): void {
+function scatter(g: CanvasRenderingContext2D, rng: Rng, w: number, h: number, marsh: boolean): void {
   // Keep the same density whatever the island size.
   const k = (w * h) / 2.4e6;
   const n = (base: number): number => Math.round(base * k);
@@ -347,7 +360,8 @@ function scatter(g: CanvasRenderingContext2D, rng: Rng, w: number, h: number): v
     const x = rng.range(0, w);
     const y = rng.range(0, h);
     const s = rng.range(0.7, 1.3);
-    g.strokeStyle = rng.chance(0.7) ? palette.tuftDark : palette.tuftLight;
+    if (marsh) g.strokeStyle = rng.chance(0.7) ? MARSH.tuft : MARSH.tuftLight;
+    else g.strokeStyle = rng.chance(0.7) ? palette.tuftDark : palette.tuftLight;
     g.lineWidth = 2.6 * s;
     for (let b = -1; b <= 1; b++) {
       g.beginPath();
@@ -356,55 +370,67 @@ function scatter(g: CanvasRenderingContext2D, rng: Rng, w: number, h: number): v
       g.stroke();
     }
   }
-  // Clover patches
-  for (let i = 0; i < n(40); i++) {
-    const x = rng.range(0, w);
-    const y = rng.range(0, h);
-    for (let j = 0; j < 3; j++) {
-      const a = (j / 3) * Math.PI * 2 - Math.PI / 2;
-      g.fillStyle = '#86BE8F';
-      g.beginPath();
-      g.arc(x + Math.cos(a) * 4, y + Math.sin(a) * 4, 4, 0, Math.PI * 2);
-      g.fill();
+  // Cracks in the dry ground
+  for (let i = 0; i < n(70); i++) {
+    let x = rng.range(0, w);
+    let y = rng.range(0, h);
+    g.strokeStyle = 'rgba(28, 24, 18, 0.55)';
+    g.lineWidth = rng.range(1.4, 2.4);
+    g.beginPath();
+    g.moveTo(x, y);
+    for (let j = 0; j < 4; j++) {
+      x += rng.range(-14, 14);
+      y += rng.range(-6, 6);
+      g.lineTo(x, y);
     }
+    g.stroke();
   }
-  for (let i = 0; i < n(120); i++) {
-    flower(g, rng.range(0, w), rng.range(0, h), rng.range(0.7, 1.1), pick(rng, ['#FFFFFF', '#FFFFFF', '#FFC7DD', '#D9C8FF', '#FFE58A']));
+  // A few faded flowers still hanging on
+  for (let i = 0; i < n(40); i++) {
+    flower(g, rng.range(0, w), rng.range(0, h), rng.range(0.7, 1), pick(rng, DIM_FLOWERS));
   }
-  // Fallen petals
-  for (let i = 0; i < n(90); i++) {
+  if (marsh) {
+    // Small puddles and reed clumps instead of dead leaves
+    for (let i = 0; i < n(26); i++) puddle(g, rng.range(0, w), rng.range(0, h), rng.range(10, 26));
+    for (let i = 0; i < n(30); i++) reeds(g, rng.range(0, w), rng.range(0, h), rng.range(0.7, 1.1), rng);
+  }
+  // Dead leaves
+  for (let i = 0; i < n(110); i++) {
     g.save();
     g.translate(rng.range(0, w), rng.range(0, h));
     g.rotate(rng.range(0, Math.PI));
-    g.fillStyle = pick(rng, ['rgba(255, 183, 210, 0.85)', 'rgba(255, 220, 235, 0.85)', 'rgba(217, 200, 255, 0.8)']);
+    g.fillStyle = pick(rng, ['rgba(120, 92, 52, 0.7)', 'rgba(96, 74, 46, 0.7)', 'rgba(140, 118, 70, 0.6)']);
     g.beginPath();
-    g.ellipse(0, 0, 5, 2.6, 0, 0, Math.PI * 2);
+    g.ellipse(0, 0, 5, 2.4, 0, 0, Math.PI * 2);
     g.fill();
     g.restore();
   }
-  // Pebbles
-  for (let i = 0; i < n(46); i++) {
+  // Pebbles with crisp dark outlines
+  for (let i = 0; i < n(90); i++) {
     const x = rng.range(0, w);
     const y = rng.range(0, h);
-    const r = rng.range(3, 7);
-    g.fillStyle = '#C9C2B6';
+    const r = rng.range(3, 8);
+    g.fillStyle = pick(rng, ['#8A857A', '#7A766C', '#95907F']);
     g.beginPath();
     g.ellipse(x, y, r, r * 0.7, 0, 0, Math.PI * 2);
     g.fill();
-    g.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    g.strokeStyle = '#2A2621';
+    g.lineWidth = 1.6;
+    g.stroke();
+    g.fillStyle = 'rgba(255, 255, 255, 0.18)';
     g.beginPath();
     g.ellipse(x - r * 0.3, y - r * 0.25, r * 0.35, r * 0.2, 0, 0, Math.PI * 2);
     g.fill();
   }
-  // Star dust glints: the "stardust" in the courtyard's name.
-  for (let i = 0; i < n(60); i++) {
-    sparklePath(g, rng.range(0, w), rng.range(0, h), rng.range(2.5, 6), 0);
-    g.fillStyle = `rgba(255, 255, 255, ${rng.range(0.55, 0.95)})`;
+  // Faint star dust glints: the "stardust" in the courtyard's name.
+  for (let i = 0; i < n(30); i++) {
+    sparklePath(g, rng.range(0, w), rng.range(0, h), rng.range(2, 4.5), 0);
+    g.fillStyle = `rgba(190, 210, 255, ${rng.range(0.25, 0.5)})`;
     g.fill();
   }
 }
 
-function drawRimBushes(g: CanvasRenderingContext2D, rng: Rng, pad: number): void {
+function drawRimBushes(g: CanvasRenderingContext2D, rng: Rng, pad: number, marsh: boolean): void {
   const left = pad - 36;
   const right = pad + L.ARENA.w + 36;
   const top = pad - 34;
@@ -422,14 +448,98 @@ function drawRimBushes(g: CanvasRenderingContext2D, rng: Rng, pad: number): void
   spots.sort((a, b) => a[1] - b[1]);
   for (const [x, y] of spots) {
     if (rng.chance(0.25)) continue;
-    bush(g, x, y, rng.range(0.8, 1.25), rng);
+    if (marsh) reeds(g, x, y + 10, rng.range(1.2, 1.7), rng);
+    else bush(g, x, y, rng.range(0.8, 1.25), rng);
   }
 }
 
+/** A still, dark pool of marsh water with a pale reflection, ringed by reeds. */
+function drawPool(g: CanvasRenderingContext2D, x: number, y: number, rng: Rng): void {
+  const r = rng.range(75, 100);
+  g.fillStyle = 'rgba(10, 18, 16, 0.35)';
+  g.beginPath();
+  g.ellipse(x, y + 6, r + 6, (r + 6) * 0.62, 0, 0, Math.PI * 2);
+  g.fill();
+  const water = g.createLinearGradient(x, y - r, x, y + r);
+  water.addColorStop(0, '#2E4A48');
+  water.addColorStop(1, '#1C302F');
+  g.fillStyle = water;
+  g.beginPath();
+  g.ellipse(x, y, r, r * 0.6, 0, 0, Math.PI * 2);
+  g.fill();
+  g.strokeStyle = '#141C18';
+  g.lineWidth = 3;
+  g.stroke();
+  g.strokeStyle = 'rgba(170, 220, 210, 0.25)';
+  g.lineWidth = 2;
+  for (let i = 0; i < 3; i++) {
+    g.beginPath();
+    g.ellipse(x + rng.range(-r * 0.4, r * 0.4), y + rng.range(-r * 0.2, r * 0.2), rng.range(14, 30), rng.range(3, 6), 0, 0, Math.PI * 2);
+    g.stroke();
+  }
+  // A couple of lily pads
+  for (let i = 0; i < 3; i++) {
+    const lx = x + rng.range(-r * 0.6, r * 0.6);
+    const ly = y + rng.range(-r * 0.3, r * 0.3);
+    g.fillStyle = '#3E5A36';
+    g.beginPath();
+    g.ellipse(lx, ly, 9, 5, 0, 0.3, Math.PI * 2);
+    g.lineTo(lx, ly);
+    g.closePath();
+    g.fill();
+    g.strokeStyle = '#15130F';
+    g.lineWidth = 1.5;
+    g.stroke();
+  }
+  for (let i = 0; i < 8; i++) {
+    const a = rng.range(0, Math.PI * 2);
+    reeds(g, x + Math.cos(a) * (r + 4), y + Math.sin(a) * (r + 4) * 0.6, rng.range(0.8, 1.2), rng);
+  }
+}
+
+/** A small muddy puddle. */
+function puddle(g: CanvasRenderingContext2D, x: number, y: number, r: number): void {
+  g.fillStyle = 'rgba(28, 46, 44, 0.75)';
+  g.beginPath();
+  g.ellipse(x, y, r, r * 0.55, 0, 0, Math.PI * 2);
+  g.fill();
+  g.strokeStyle = 'rgba(160, 210, 200, 0.22)';
+  g.lineWidth = 1.5;
+  g.beginPath();
+  g.ellipse(x - r * 0.2, y - r * 0.1, r * 0.4, r * 0.12, 0, 0, Math.PI * 2);
+  g.stroke();
+}
+
+/** A clump of tall reeds, some with dark seed heads. */
+function reeds(g: CanvasRenderingContext2D, x: number, y: number, s: number, rng: Rng): void {
+  g.lineCap = 'round';
+  for (let i = 0; i < 5; i++) {
+    const bx = x + rng.range(-8, 8) * s;
+    const lean = rng.range(-8, 8) * s;
+    const len = rng.range(18, 34) * s;
+    g.strokeStyle = '#15130F';
+    g.lineWidth = 4 * s;
+    g.beginPath();
+    g.moveTo(bx, y);
+    g.quadraticCurveTo(bx + lean * 0.3, y - len * 0.6, bx + lean, y - len);
+    g.stroke();
+    g.strokeStyle = rng.chance(0.5) ? '#6E7A4A' : '#58663E';
+    g.lineWidth = 2 * s;
+    g.stroke();
+    if (rng.chance(0.35)) {
+      g.fillStyle = '#4A3424';
+      g.beginPath();
+      g.ellipse(bx + lean, y - len, 2.6 * s, 6 * s, 0, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+}
+
+/** A dark, thorny shrub along the island's edge. */
 function bush(g: CanvasRenderingContext2D, x: number, y: number, s: number, rng: Rng): void {
-  const base = pick(rng, ['#8FD19C', '#9AD8A4', '#86C995']);
-  const line = darken(base, 0.45);
-  g.fillStyle = 'rgba(60, 110, 80, 0.2)';
+  const base = pick(rng, ['#3F4A36', '#465140', '#3A4332']);
+  const line = '#15130F';
+  g.fillStyle = 'rgba(10, 8, 6, 0.3)';
   g.beginPath();
   g.ellipse(x, y + 16 * s, 38 * s, 12 * s, 0, 0, Math.PI * 2);
   g.fill();
@@ -442,21 +552,35 @@ function bush(g: CanvasRenderingContext2D, x: number, y: number, s: number, rng:
     g.beginPath();
     g.arc(x + dx * s, y + dy * s, r * s, 0, Math.PI * 2);
     const grad = g.createLinearGradient(x, y + (dy - r) * s, x, y + (dy + r) * s);
-    grad.addColorStop(0, lighten(base, 0.3));
+    grad.addColorStop(0, lighten(base, 0.18));
     grad.addColorStop(1, base);
     g.fillStyle = grad;
     g.fill();
     g.strokeStyle = line;
-    g.lineWidth = 2.4;
+    g.lineWidth = 3;
     g.stroke();
   }
-  g.fillStyle = 'rgba(255, 255, 255, 0.45)';
-  g.beginPath();
-  g.ellipse(x - 6 * s, y - 22 * s, 9 * s, 4 * s, -0.4, 0, Math.PI * 2);
-  g.fill();
-  const petal = pick(rng, ['#FFFFFF', '#FFB7D2', '#D9C8FF', '#FFE58A']);
-  for (let i = 0; i < 4; i++) {
-    flower(g, x + rng.range(-24, 24) * s, y + rng.range(-24, 6) * s, 0.9 * s, petal);
+  // Thorns poking out
+  g.strokeStyle = '#1C1A14';
+  g.lineWidth = 2.2;
+  for (let i = 0; i < 7; i++) {
+    const a = rng.range(Math.PI * 1.05, Math.PI * 1.95);
+    const r0 = 18 * s;
+    const bx = x + Math.cos(a) * r0;
+    const by = y - 6 * s + Math.sin(a) * r0;
+    g.beginPath();
+    g.moveTo(bx, by);
+    g.lineTo(bx + Math.cos(a) * 12 * s, by + Math.sin(a) * 12 * s);
+    g.stroke();
+  }
+  if (rng.chance(0.4)) {
+    // A few dark red berries
+    for (let i = 0; i < 3; i++) {
+      g.fillStyle = '#7A2A34';
+      g.beginPath();
+      g.arc(x + rng.range(-20, 20) * s, y + rng.range(-20, 4) * s, 3 * s, 0, Math.PI * 2);
+      g.fill();
+    }
   }
 }
 
@@ -478,7 +602,7 @@ function pick<T>(rng: Rng, list: T[]): T {
   return list[rng.int(0, list.length - 1)];
 }
 
-/** A puffy cloud sprite for the sky behind the island. */
+/** A drifting bank of dark mist for the void around the island. */
 export function bakeCloud(platform: Platform, seed: number): Surface {
   const w = 360;
   const h = 160;
@@ -489,15 +613,15 @@ export function bakeCloud(platform: Platform, seed: number): Surface {
   const puffs: Array<[number, number, number]> = [];
   for (let i = 0; i < 7; i++) puffs.push([rng.range(70, w - 70), rng.range(70, h - 40), rng.range(34, 62)]);
   for (const [x, y, r] of puffs) {
-    g.fillStyle = 'rgba(214, 200, 245, 0.55)';
+    g.fillStyle = 'rgba(40, 32, 56, 0.45)';
     g.beginPath();
     g.arc(x, y + 8, r, 0, Math.PI * 2);
     g.fill();
   }
   for (const [x, y, r] of puffs) {
     const grad = g.createRadialGradient(x - r * 0.3, y - r * 0.4, r * 0.2, x, y, r);
-    grad.addColorStop(0, 'rgba(255, 255, 255, 0.98)');
-    grad.addColorStop(1, 'rgba(250, 245, 255, 0.9)');
+    grad.addColorStop(0, 'rgba(96, 84, 120, 0.55)');
+    grad.addColorStop(1, 'rgba(60, 50, 80, 0.4)');
     g.fillStyle = grad;
     g.beginPath();
     g.arc(x, y, r, 0, Math.PI * 2);

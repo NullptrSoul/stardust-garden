@@ -2,8 +2,37 @@ import type { Rect } from '../engine/ui';
 
 /** Screen layouts shared by input (buttons) and drawing, in design units. */
 
-export const selectCard = (i: number): Rect => ({ x: 24 + (i % 2) * 344, y: 172 + Math.floor(i / 2) * 300, w: 328, h: 284 });
+export const selectCard = (i: number): Rect => ({ x: 24 + (i % 2) * 344, y: 150 + Math.floor(i / 2) * 300, w: 328, h: 284 });
 export const SELECT_START: Rect = { x: 160, y: 1112, w: 400, h: 100 };
+export const SELECT_BACK: Rect = { x: 18, y: 66, w: 120, h: 60 };
+
+export const TITLE_STORY: Rect = { x: 160, y: 852, w: 400, h: 100 };
+export const TITLE_ENDLESS: Rect = { x: 160, y: 1000, w: 400, h: 96 };
+export const TITLE_TALENTS: Rect = { x: 18, y: 30, w: 130, h: 60 };
+export const TITLE_SETTINGS: Rect = { x: 572, y: 30, w: 130, h: 60 };
+
+/** Settings: one toggle row per option, then the progress reset. */
+export const settingsRow = (i: number): Rect => ({ x: 90, y: 250 + i * 112, w: 540, h: 92 });
+export const SETTINGS_RESET: Rect = { x: 140, y: 880, w: 440, h: 84 };
+export const PAUSE_SETTINGS: Rect = { x: 540, y: 166, w: 130, h: 56 };
+
+/** Centers of the stage nodes on the chapter map, winding up from the bottom. */
+export const STAGE_NODE_CENTERS: Array<[number, number]> = [
+  [190, 1030],
+  [520, 870],
+  [210, 710],
+  [510, 550],
+  [330, 380],
+];
+export const stageNode = (i: number): Rect => {
+  const [x, y] = STAGE_NODE_CENTERS[i];
+  return { x: x - 100, y: y - 66, w: 200, h: 210 };
+};
+
+export const CHAPTER_PREV: Rect = { x: 18, y: 1180, w: 160, h: 56 };
+export const CHAPTER_NEXT: Rect = { x: 542, y: 1180, w: 160, h: 56 };
+
+export const talentCard = (i: number): Rect => ({ x: 30 + (i % 2) * 340, y: 240 + Math.floor(i / 2) * 250, w: 320, h: 230 });
 
 export const PAUSE_BUTTON: Rect = { x: 640, y: 22, w: 66, h: 66 };
 /** Bottom-right, under the right thumb. */
@@ -27,8 +56,8 @@ export const CHEST_KEEP: Rect = { x: 100, y: 880, w: 250, h: 100 };
 export const CHEST_SELL: Rect = { x: 370, y: 880, w: 250, h: 100 };
 
 export const PAUSE_PANEL: Rect = { x: 30, y: 130, w: 660, h: 1120 };
-export const PAUSE_RESUME: Rect = { x: 150, y: 1018, w: 420, h: 100 };
-export const PAUSE_QUIT: Rect = { x: 200, y: 1140, w: 320, h: 80 };
+export const PAUSE_RESUME: Rect = { x: 150, y: 1052, w: 420, h: 90 };
+export const PAUSE_QUIT: Rect = { x: 200, y: 1158, w: 320, h: 72 };
 
 export const END_PRIMARY: Rect = { x: 160, y: 790, w: 400, h: 100 };
 export const END_SECONDARY: Rect = { x: 160, y: 910, w: 400, h: 96 };

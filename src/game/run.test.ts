@@ -98,11 +98,11 @@ describe('Run', () => {
     expect(new Set(cards.map((c) => c.key)).size).toBe(4);
   });
 
-  it('gives the maid character 15% bonus shards after a wave', () => {
+  it('gives 深汐 10% bonus shards after a wave', () => {
     const run = new Run(char('shenxi'), 1);
     run.shards = 100;
     run.finishWave();
-    expect(run.shards).toBe(115);
+    expect(run.shards).toBe(110);
   });
 });
 
@@ -129,5 +129,33 @@ describe('stats', () => {
     const s = { ...BASE_STATS, damage: 10, meleeDamage: 30, rangedDamage: -30 };
     expect(damageMultiplier(s, 'melee')).toBeCloseTo(1.4);
     expect(damageMultiplier(s, 'ranged')).toBeCloseTo(0.8);
+  });
+});
+
+describe('Synergies', () => {
+  it('gives the class bonus for each weapon with the class tag', () => {
+    // 橘言 is a mage: +6% damage and +3% attack speed per arcane weapon; the tome is arcane.
+    const run = new Run(char('juyan'), 1);
+    const before = run.stats.damage;
+    run.addWeapon('staff', 1); // arcane + shooter
+    expect(run.stats.damage).toBe(before + 6 + 8); // one more class stack, plus the 2-arcane set
+  });
+
+  it('turns set bonuses on at 2 weapons and off again when one is sold', () => {
+    const run = new Run(char('jinti'), 1); // crescent: melee
+    const armor = run.stats.armor;
+    run.addWeapon('fan', 0); // melee + element
+    // Warrior +1 armor per melee weapon, and the 2-melee set gives +1 armor.
+    expect(run.stats.armor).toBe(armor + 1 + 1);
+    run.sellWeapon(1);
+    expect(run.stats.armor).toBe(armor);
+  });
+
+  it('keeps level-up and item stats when weapons change', () => {
+    const run = new Run(char('shenxi'), 1);
+    run.applyUpgrade({ key: 'luck', value: 7, rarity: 0 });
+    run.addWeapon('talisman', 0);
+    run.sellWeapon(1);
+    expect(run.stats.luck).toBe(7);
   });
 });

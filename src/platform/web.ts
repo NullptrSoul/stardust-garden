@@ -1,5 +1,6 @@
 import type {
   NoiseOptions,
+  NoteOptions,
   Platform,
   PlatformAudio,
   PlatformStorage,
@@ -95,6 +96,8 @@ export function createWebPlatform(canvas: HTMLCanvasElement): Platform {
 function createWebAudio(): PlatformAudio {
   let ctx: AudioContext | null = null;
   let master: GainNode | null = null;
+  let music: GainNode | null = null;
+  let musicVolume = 0.6;
   let noiseBuffer: AudioBuffer | null = null;
 
   function ensure(): AudioContext | null {
@@ -110,6 +113,10 @@ function createWebAudio(): PlatformAudio {
     master.gain.value = 0.8;
     master.connect(comp);
     comp.connect(ctx.destination);
+    // Music gets its own bus so it can be faded or muted apart from sound effects.
+    music = ctx.createGain();
+    music.gain.value = musicVolume;
+    music.connect(comp);
     return ctx;
   }
 
@@ -157,6 +164,41 @@ function createWebAudio(): PlatformAudio {
       gain.connect(master);
       src.start(t, Math.random() * 0.8);
       src.stop(t + o.duration + 0.02);
+    },
+    time() {
+      return ctx && ctx.state === 'running' ? ctx.currentTime : 0;
+    },
+    note(o: NoteOptions) {
+      if (!ctx || !music || ctx.state !== 'running') return;
+      const t = Math.max(o.at, ctx.currentTime);
+      const end = t + o.duration;
+      const attack = Math.min(o.attack ?? 0.01, o.duration * 0.5);
+      const release = Math.min(o.release ?? 0.1, o.duration - attack);
+      const osc = ctx.createOscillator();
+      osc.type = o.type ?? 'triangle';
+      osc.frequency.setValueAtTime(o.freq, t);
+      if (o.slideTo) osc.frequency.exponentialRampToValueAtTime(o.slideTo, end);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.linearRampToValueAtTime(o.volume ?? 0.05, t + attack);
+      gain.gain.setValueAtTime(o.volume ?? 0.05, end - release);
+      gain.gain.linearRampToValueAtTime(0.0001, end);
+      let out: AudioNode = osc;
+      if (o.cutoff) {
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = o.cutoff;
+        osc.connect(lp);
+        out = lp;
+      }
+      out.connect(gain);
+      gain.connect(music);
+      osc.start(t);
+      osc.stop(end + 0.02);
+    },
+    setMusicVolume(volume: number) {
+      musicVolume = volume;
+      if (ctx && music) music.gain.setTargetAtTime(volume, ctx.currentTime, 0.25);
     },
   };
 }

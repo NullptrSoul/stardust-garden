@@ -1,10 +1,13 @@
 import { Rng } from '../engine/rng';
 import { config } from './config';
 import type { CharacterDef } from './data/characters';
-import { ITEMS, type ItemDef } from './data/items';
+import { activeItemSets, ITEMS, type ItemDef } from './data/items';
 import { LEVEL_UPGRADES, rollRarity } from './data/upgrades';
 import { MAX_TIER, TIER_PRICE, WEAPONS, weaponById } from './data/weapons';
-import { addMods, BASE_STATS, type StatKey, type Stats } from './stats';
+import { synergyMods } from './data/synergies';
+import type { StageDef } from './data/stages';
+import { addMods, BASE_STATS, type StatKey, type StatMods, type Stats } from './stats';
+import { priceScale, type GameMode } from './waves';
 
 export interface OwnedWeapon {
   id: string;
@@ -27,18 +30,31 @@ export interface ShopOffer {
   locked: boolean;
 }
 
+export interface RunOptions {
+  stage?: StageDef;
+  /** Permanent talent bonuses. */
+  bonus?: StatMods;
+  startShards?: number;
+}
+
 /** Share of a weapon's price returned when selling it. */
 const SELL_SHARE = 0.35;
 /** Share of an item's price returned when selling it from a chest. */
 const CHEST_SELL_SHARE = 0.5;
+/** 深汐's passive: extra shards at the end of each wave. */
+const SHENXI_INTEREST = 0.1;
 
-export type BuyResult = 'bought' | 'merged' | 'poor' | 'full' | 'sold';
+/** full: no free weapon slot. max: that item is already held at its cap. */
+export type BuyResult = 'bought' | 'merged' | 'poor' | 'full' | 'sold' | 'max';
 
 /** Chance a shop slot holds a weapon rather than an item. */
 const WEAPON_OFFER_CHANCE = 0.4;
 
 /** Everything that persists across the waves of one run. */
 export class Run {
+  /** Stats from the character, level-ups and items, before synergy bonuses. */
+  private readonly base: Stats;
+  /** What the game uses: base stats plus the active synergy bonuses. */
   readonly stats: Stats;
   readonly weapons: OwnedWeapon[] = [];
   readonly items = new Map<string, number>();
@@ -52,24 +68,56 @@ export class Run {
   pendingLevels = 0;
   lastStandUsed = false;
   revived = false;
+  /** Set once the run's result went into the records (a revive can end it twice). */
+  recorded = false;
+  /** Waves already turned into stardust (a revive can end the run twice). */
+  paidWaves = 0;
   /** Treasure chests picked up this wave, opened when it ends. */
   chests = 0;
   offers: ShopOffer[] = [];
   rerolls = 0;
   private readonly rng: Rng;
 
+  /** The stage being played, or null in endless mode. */
+  readonly stage: StageDef | null;
+
   constructor(
     readonly character: CharacterDef,
     seed: number,
+    readonly mode: GameMode = 'stage',
+    options: RunOptions = {},
   ) {
     this.rng = new Rng(seed);
-    this.stats = { ...BASE_STATS };
-    addMods(this.stats, character.mods);
+    this.stage = options.stage ?? null;
+    this.base = { ...BASE_STATS };
+    addMods(this.base, character.mods);
+    if (options.bonus) addMods(this.base, options.bonus);
+    this.shards = options.startShards ?? 0;
+    this.stats = { ...this.base };
     this.weapons.push({ id: character.startWeapon, tier: 0 });
+    this.refreshStats();
+  }
+
+  /** Recomputes `stats`; call after base stats or weapons change. */
+  private refreshStats(): void {
+    Object.assign(this.stats, this.base);
+    addMods(this.stats, synergyMods(this.character.cls, this.weapons.map((w) => w.id)));
+    for (const set of activeItemSets(this.items)) addMods(this.stats, set.mods);
+  }
+
+  /** Uses up one copy of an item (the phoenix feather). */
+  consumeItem(id: string): void {
+    const n = this.items.get(id) ?? 0;
+    if (n <= 1) this.items.delete(id);
+    else this.items.set(id, n - 1);
+    const item = ITEMS.find((x) => x.id === id);
+    if (item) for (const key of Object.keys(item.mods) as StatKey[]) this.base[key] -= item.mods[key] ?? 0;
+    this.refreshStats();
   }
 
   xpToNext(): number {
-    return config.xpBase + config.xpPerLevel * (this.level - 1);
+    const n = this.level - 1;
+    return Math.round(config.xpBase + config.xpPerLevel * n + config.xpQuad * n * n);
   }
 
   /** Picking up shards gives money and experience. Returns levels gained. */
@@ -96,12 +144,13 @@ export class Run {
   }
 
   applyUpgrade(card: UpgradeCard): void {
-    this.stats[card.key] += card.value;
+    this.base[card.key] += card.value;
+    this.refreshStats();
     this.pendingLevels = Math.max(0, this.pendingLevels - 1);
   }
 
   price(base: number): number {
-    return Math.round(base * (1 + config.priceGrowth * (this.wave - 1)));
+    return Math.round(base * priceScale(this));
   }
 
   rerollCost(): number {
@@ -143,12 +192,20 @@ export class Run {
     if (!w || this.weapons.length <= 1) return 0;
     const value = this.sellValue(w);
     this.weapons.splice(index, 1);
+    this.refreshStats();
     this.shards += value;
     return value;
   }
 
+  /** A random item, skipping the ones already held at their cap. */
   randomItem(): ItemDef {
-    return ITEMS[this.rng.int(0, ITEMS.length - 1)];
+    const pool = ITEMS.filter((x) => !this.atCap(x));
+    return pool[this.rng.int(0, pool.length - 1)];
+  }
+
+  /** True when the run already holds as many of this item as it may. */
+  atCap(item: ItemDef): boolean {
+    return item.max !== undefined && (this.items.get(item.id) ?? 0) >= item.max;
   }
 
   chestSellValue(item: ItemDef): number {
@@ -163,8 +220,10 @@ export class Run {
   }
 
   addItem(item: ItemDef): void {
-    addMods(this.stats, item.mods);
+    addMods(this.base, item.mods);
+    // Record the item first: refreshStats checks item sets.
     this.items.set(item.id, (this.items.get(item.id) ?? 0) + 1);
+    this.refreshStats();
   }
 
   /** New stock for the reroll price; free=true is the ad reward. */
@@ -188,7 +247,9 @@ export class Run {
       offer.locked = false;
       return result;
     }
-    this.addItem(itemById(offer.id));
+    const item = itemById(offer.id);
+    if (this.atCap(item)) return 'max';
+    this.addItem(item);
     this.shards -= offer.price;
     offer.sold = true;
     offer.locked = false;
@@ -207,14 +268,18 @@ export class Run {
     }
     if (this.weapons.length >= config.maxWeapons) return 'full';
     this.weapons.push({ id, tier });
+    this.refreshStats();
     return 'bought';
   }
 
   /** Called when a wave ends, before level-ups and the shop. */
   finishWave(): void {
     if (this.character.special === 'bonusShards') {
-      this.shards += Math.floor(this.shards * 0.15);
+      this.shards += Math.floor(this.shards * SHENXI_INTEREST);
     }
+    // Piggy bank: interest on saved shards, capped so it can't snowball forever.
+    const piggy = this.items.get('piggy') ?? 0;
+    if (piggy > 0) this.shards += Math.floor(this.shards * Math.min(0.3, 0.08 * piggy));
     this.rerolls = 0;
   }
 

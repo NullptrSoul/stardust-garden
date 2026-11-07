@@ -33,5 +33,5 @@ if (import.meta.env.DEV || new URLSearchParams(location.search).has('tune')) {
 }
 if (import.meta.env.DEV) {
   // Handles for testing from the browser console.
-  Object.assign(window, { game, config });
+  Object.assign(window, { game, config, renderer });
 }

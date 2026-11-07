@@ -9,17 +9,23 @@ export type EnemyLook =
   | 'bud'
   | 'king'
   | 'darkKnight'
-  | 'queen';
+  | 'queen'
+  | 'leech'
+  | 'frog'
+  | 'wisp'
+  | 'golem'
+  | 'toad';
 
 /** Which scripted boss brain drives a boss. */
-export type BossKind = 'king' | 'knight' | 'queen';
+export type BossKind = 'king' | 'knight' | 'queen' | 'toad';
 
 /**
  * chase: walk at the player. keepAway: hold a distance and shoot.
  * charge: chase, then periodically wind up and dash in a straight line.
  * flee: run from the player and escape after a while. still: never moves.
+ * kamikaze: rush the player, stop next to them, flash, then explode.
  */
-export type EnemyBehavior = 'chase' | 'keepAway' | 'charge' | 'flee' | 'still';
+export type EnemyBehavior = 'chase' | 'keepAway' | 'charge' | 'flee' | 'still' | 'kamikaze';
 
 export interface ShootDef {
   interval: number;
@@ -68,8 +74,14 @@ export interface EnemyDef {
   /** Seconds between summoning slimes. */
   summonEvery?: number;
   boss?: BossKind;
+  /** Wave a boss's base HP is tuned for; met on a harder wave it gets more. */
+  bossWave?: number;
   /** Shown under the name in the boss entrance banner. */
   title?: string;
+  /** Chapter whose monster pool this belongs to (default 1). */
+  chapter?: number;
+  /** Can't be knocked back. */
+  heavy?: boolean;
 }
 
 /** Shared default chance for regular monsters to drop a candy. */
@@ -144,6 +156,7 @@ export const ENEMIES: EnemyDef[] = [
     firstWave: 99,
     weight: 0,
     boss: 'king',
+    bossWave: 5,
   },
   {
     id: 'darkKnight',
@@ -161,6 +174,7 @@ export const ENEMIES: EnemyDef[] = [
     firstWave: 99,
     weight: 0,
     boss: 'knight',
+    bossWave: 8,
   },
   {
     id: 'queen',
@@ -177,6 +191,47 @@ export const ENEMIES: EnemyDef[] = [
     firstWave: 99,
     weight: 0,
     boss: 'queen',
+    bossWave: 10,
+  },
+  // ---- Chapter 2: the misty marsh ----
+  { id: 'leech', name: '吸血水蛭', look: 'leech', behavior: 'chase', hp: 7, speed: 175, damage: 2, radius: 20, drops: 1, candy: CANDY, firstWave: 1, weight: 8, chapter: 2 },
+  {
+    id: 'frog',
+    name: '毒蛙',
+    look: 'frog',
+    behavior: 'keepAway',
+    hp: 12,
+    speed: 110,
+    damage: 2,
+    radius: 24,
+    drops: 2,
+    candy: CANDY,
+    firstWave: 1,
+    weight: 5,
+    keepAway: 260,
+    shoot: { interval: 2.2, speed: 300, damage: 2, count: 1 },
+    chapter: 2,
+  },
+  { id: 'wisp', name: '鬼火', look: 'wisp', behavior: 'kamikaze', hp: 6, speed: 155, damage: 4, radius: 20, drops: 1, candy: 0, firstWave: 1, weight: 4, chapter: 2 },
+  { id: 'golem', name: '苔藓石像', look: 'golem', behavior: 'chase', hp: 60, speed: 55, damage: 5, radius: 36, drops: 4, candy: CANDY * 2, firstWave: 1, weight: 2, chapter: 2, heavy: true },
+  {
+    id: 'toad',
+    name: '沼泽巨蟾 · 瘟喉',
+    title: '吞下整座城的毒蟾',
+    look: 'toad',
+    behavior: 'chase',
+    hp: 2400,
+    speed: 70,
+    damage: 7,
+    radius: 72,
+    drops: 36,
+    candy: 1,
+    chest: true,
+    firstWave: 99,
+    weight: 0,
+    boss: 'toad',
+    bossWave: 8,
+    chapter: 2,
   },
 ];
 

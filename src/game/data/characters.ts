@@ -1,4 +1,5 @@
 import type { StatMods } from '../stats';
+import type { ClassId } from './synergies';
 
 export type Accessory = 'horns' | 'catEars' | 'headdress' | 'flower' | 'hat' | 'maid';
 
@@ -33,6 +34,8 @@ export interface CharacterDef {
   outfit: string;
   accessory: Accessory;
   startWeapon: string;
+  /** Class: weapons with its tag give extra stats. */
+  cls: ClassId;
   mods: StatMods;
   special?: Special;
   passive: string;
@@ -55,6 +58,7 @@ export const CHARACTERS: CharacterDef[] = [
     outfit: '#FFFFFF',
     accessory: 'horns',
     startWeapon: 'staff',
+    cls: 'support',
     mods: { regen: 2, pickup: 40 },
     special: 'lastStand',
     passive: '生命回复 +2，拾取范围 +40\n每局一次，受到致命伤时保留 1 点生命',
@@ -70,6 +74,7 @@ export const CHARACTERS: CharacterDef[] = [
     outfit: '#4F43A8',
     accessory: 'catEars',
     startWeapon: 'talisman',
+    cls: 'ranger',
     mods: { speed: 15, dodge: 10, maxHp: -3 },
     passive: '移速 +15%，闪避 +10%\n生命上限 -3',
     skill: { kind: 'thunderstorm', name: '猫步雷暴', desc: '召唤 10 道落雷，依次劈向附近的怪物' },
@@ -84,6 +89,7 @@ export const CHARACTERS: CharacterDef[] = [
     outfit: '#3A2E50',
     accessory: 'headdress',
     startWeapon: 'crescent',
+    cls: 'warrior',
     mods: { meleeDamage: 30, crit: 10, rangedDamage: -30 },
     passive: '近战伤害 +30%，暴击 +10%\n远程伤害 -30%',
     skill: { kind: 'judgment', name: '断罪之戟', desc: '挥出一圈巨大的戟风，重创并击飞周围所有怪物' },
@@ -98,8 +104,9 @@ export const CHARACTERS: CharacterDef[] = [
     outfit: '#FFF4E6',
     accessory: 'flower',
     startWeapon: 'tome',
-    mods: { xpGain: 30, luck: 10, damage: -5 },
-    passive: '经验 +30%，幸运 +10\n伤害 -5%',
+    cls: 'mage',
+    mods: { xpGain: 30, luck: 10 },
+    passive: '经验 +30%，幸运 +10',
     skill: { kind: 'fireRing', name: '焚书之环', desc: '8 颗火球绕身旋转 6 秒，烧伤碰到的怪物' },
   },
   {
@@ -112,6 +119,7 @@ export const CHARACTERS: CharacterDef[] = [
     outfit: '#FFFFFF',
     accessory: 'hat',
     startWeapon: 'fan',
+    cls: 'controller',
     mods: { range: 60, attackSpeed: 10 },
     passive: '范围 +60，攻速 +10%',
     skill: { kind: 'gale', name: '青岚扇舞', desc: '扇出狂风吹飞全屏怪物，减速 4 秒，并吹散子弹' },
@@ -126,9 +134,10 @@ export const CHARACTERS: CharacterDef[] = [
     outfit: '#2E3B80',
     accessory: 'maid',
     startWeapon: 'bubble',
-    mods: { armor: 3, maxHp: 8, speed: -8 },
+    cls: 'tank',
+    mods: { armor: 2, maxHp: 8, speed: -8 },
     special: 'bonusShards',
-    passive: '护甲 +3，生命上限 +8，移速 -8%\n每波结束额外获得 15% 星屑',
+    passive: '护甲 +2，生命上限 +8，移速 -8%\n每波结束额外获得 10% 星屑',
     skill: { kind: 'whale', name: '深海鲸歌', desc: '召唤巨鲸砸向怪物最多的地方，并回复 20% 生命' },
   },
 ];

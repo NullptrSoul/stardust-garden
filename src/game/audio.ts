@@ -69,14 +69,21 @@ export class Sfx {
     this.play('dodge', 150, { freq: 1400, slideTo: 2000, duration: 0.08, type: 'sine', volume: 0.05 });
   }
 
-  /** Boss entrance: a low roar. */
+  /** Boss entrance: a low roar over a sub-bass drop and a dissonant growl. */
   bossAppear(): void {
-    this.play('boss', 1000, { freq: 110, slideTo: 45, duration: 1.1, type: 'sawtooth', volume: 0.16 }, { duration: 1, volume: 0.25, freq: 180, q: 0.5 });
+    if (!this.play('boss', 1000, { freq: 110, slideTo: 45, duration: 1.1, type: 'sawtooth', volume: 0.16 }, { duration: 1, volume: 0.25, freq: 180, q: 0.5 })) return;
+    const a = this.platform.audio;
+    a.tone({ freq: 58, slideTo: 28, duration: 1.4, type: 'sine', volume: 0.24 });
+    a.tone({ freq: 155, slideTo: 62, duration: 0.9, type: 'square', volume: 0.04 });
+    a.noise({ duration: 1.3, volume: 0.18, freq: 70, q: 0.4 });
   }
 
-  /** A heavy landing or explosion. */
+  /** A heavy landing: thud, sub-bass and a burst of rubble. */
   slam(): void {
-    this.play('slam', 150, { freq: 120, slideTo: 35, duration: 0.45, type: 'sine', volume: 0.2 }, { duration: 0.4, volume: 0.28, freq: 240, q: 0.5 });
+    if (!this.play('slam', 150, { freq: 120, slideTo: 35, duration: 0.45, type: 'sine', volume: 0.2 }, { duration: 0.4, volume: 0.28, freq: 240, q: 0.5 })) return;
+    const a = this.platform.audio;
+    a.tone({ freq: 62, slideTo: 30, duration: 0.6, type: 'sine', volume: 0.22 });
+    a.noise({ duration: 0.25, volume: 0.16, freq: 1800, q: 0.7 });
   }
 
   /** A boss charging an attack. */
@@ -125,13 +132,15 @@ export class Sfx {
     this.play('error', 150, { freq: 200, duration: 0.12, type: 'square', volume: 0.04 });
   }
 
-  private play(key: string, gapMs: number, tone: ToneOptions, noise?: NoiseOptions): void {
-    if (!config.sound) return;
+  /** Plays unless muted or throttled; returns whether it played. */
+  private play(key: string, gapMs: number, tone: ToneOptions, noise?: NoiseOptions): boolean {
+    if (!config.sound) return false;
     const now = this.platform.now();
     const prev = this.last.get(key);
-    if (prev !== undefined && now - prev < gapMs) return;
+    if (prev !== undefined && now - prev < gapMs) return false;
     this.last.set(key, now);
     this.platform.audio.tone(tone);
     if (noise) this.platform.audio.noise(noise);
+    return true;
   }
 }

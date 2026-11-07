@@ -9,7 +9,7 @@ import type { Enemy, World } from './world';
  * Scripted boss brains. Every attack has a wind-up with a red ground telegraph
  * (or a flash) before it lands, so big hits are readable and dodgeable.
  */
-export type BossAction = 'none' | 'jump' | 'dash' | 'spin' | 'fan' | 'ring' | 'spiral' | 'summon';
+export type BossAction = 'none' | 'jump' | 'dash' | 'spin' | 'fan' | 'ring' | 'spiral' | 'summon' | 'pool';
 
 export interface BossBrain {
   kind: BossKind;
@@ -50,6 +50,10 @@ const CYCLES: Record<BossKind, BossAction[][]> = {
     ['spiral', 'ring', 'summon', 'fan'],
     ['spiral', 'ring', 'fan', 'summon'],
   ],
+  toad: [
+    ['jump', 'fan', 'summon'],
+    ['jump', 'pool', 'fan', 'summon', 'pool'],
+  ],
 };
 
 /** Pause between attacks, per phase. */
@@ -57,12 +61,14 @@ const GAPS: Record<BossKind, number[]> = {
   king: [2.4, 1.6],
   knight: [1.4, 1.0],
   queen: [2.2, 1.7, 1.2],
+  toad: [2.0, 1.3],
 };
 
 const PHASE_LINES: Record<BossKind, string[]> = {
   king: ['', '国王发怒了！'],
   knight: ['', '黑曜之力解放！'],
   queen: ['', '女王展开了翅膀！', '女王狂暴了！'],
+  toad: ['', '巨蟾鼓起了毒囊！'],
 };
 
 const JUMP_RADIUS = 170;
@@ -157,6 +163,9 @@ export function updateBoss(w: World, e: Enemy, dt: number): boolean {
     case 'summon':
       finish(b);
       return false;
+    case 'pool':
+      if (b.t <= 0) finish(b);
+      return true;
   }
   return false;
 }
@@ -197,9 +206,28 @@ function start(w: World, e: Enemy, b: BossBrain, action: BossAction): void {
       w.sfx.warn();
       break;
     case 'summon': {
+      if (b.kind === 'toad') {
+        w.summon(e.x, e.y, 3, b.phase >= 2 ? 1 : 0, 'frog');
+        w.waves.push({ x: e.x, y: e.y - e.r * 0.5, radius: e.r * 2.4, life: 0.5, maxLife: 0.5, color: '#9AD86A' });
+        break;
+      }
       const slimes = b.kind === 'king' ? 4 : 2 + b.phase;
       w.summon(e.x, e.y, slimes, b.kind === 'queen' && b.phase >= 2 ? 1 : 0);
       w.waves.push({ x: e.x, y: e.y - e.r * 0.5, radius: e.r * 2.4, life: 0.5, maxLife: 0.5, color: '#B48CFF' });
+      break;
+    }
+    case 'pool': {
+      // Poison spit: warning circles around the player that burst a moment later.
+      const n = b.phase >= 2 ? 5 : 4;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + Math.random();
+        const d = i === 0 ? 0 : 90 + Math.random() * 130;
+        const x = clamp(p.x + Math.cos(a) * d, L.ARENA.x + 60, L.ARENA_RIGHT - 60);
+        const y = clamp(p.y + Math.sin(a) * d, L.ARENA.y + 60, L.ARENA_BOTTOM - 60);
+        w.delayedBlast(x, y, 85, 1.1 + i * 0.12, bulletDamage(e) + 1, '#9AD86A');
+      }
+      e.flash = 0.6;
+      b.t = 0.9;
       break;
     }
     case 'none':
@@ -245,14 +273,15 @@ function jump(w: World, e: Enemy, b: BossBrain): boolean {
   // Landing
   b.z = 0;
   const p = w.player;
-  if (Math.hypot(p.x - b.tx, p.y - b.ty) < JUMP_RADIUS + config.playerRadius * 0.5) w.hurtPlayer(e.damage + 2);
-  fireRing(w, e, b.phase >= 2 ? 16 : 12, Math.random(), 300);
+  if (L.inGroundCircle(p.x, p.y, b.tx, b.ty, JUMP_RADIUS, config.playerRadius * 0.5)) w.hurtPlayer(e.damage + 2);
+  // Phase 1 leaves wide gaps in the ring, so melee can learn to slip through.
+  fireRing(w, e, b.phase >= 2 ? 14 : 8, Math.random(), 300);
   w.waves.push({ x: b.tx, y: b.ty, radius: JUMP_RADIUS * 1.3, life: 0.5, maxLife: 0.5, color: palette.danger });
   w.waves.push({ x: b.tx, y: b.ty, radius: JUMP_RADIUS, life: 0.35, maxLife: 0.35, color: '#FFFFFF' });
   w.fx.burst(b.tx, b.ty, '#E9D8C4', 24, 420, 9, 0.6);
-  w.addDecal(b.tx, b.ty + 10, JUMP_RADIUS * 0.6, '#6E5040');
-  if (config.shake) w.fx.addShake(16);
-  w.stop(0.08);
+  w.groundCrack(b.tx, b.ty + 10, JUMP_RADIUS * 0.75);
+  if (config.shake) w.fx.addShake(10);
+  w.stop(0.05);
   w.sfx.slam();
   b.count--;
   if (b.count > 0) beginJump(w, e, b, 0.35);
@@ -298,14 +327,15 @@ function dash(w: World, e: Enemy, b: BossBrain, dt: number): boolean {
 function spin(w: World, e: Enemy, b: BossBrain): boolean {
   if (b.t > 0) return true;
   const p = w.player;
-  if (Math.hypot(p.x - e.x, p.y - e.y) < SPIN_RADIUS + config.playerRadius * 0.5) w.hurtPlayer(e.damage);
+  if (L.inGroundCircle(p.x, p.y, e.x, e.y, SPIN_RADIUS, config.playerRadius * 0.5)) w.hurtPlayer(e.damage);
   for (let i = 0; i < 3; i++) {
     w.swings.push({ x: e.x, y: e.y - 20, angle: (i * Math.PI * 2) / 3, radius: SPIN_RADIUS, life: 0.35, maxLife: 0.35, color: '#7B5CC7' });
   }
   w.waves.push({ x: e.x, y: e.y - 20, radius: SPIN_RADIUS, life: 0.45, maxLife: 0.45, color: '#7B5CC7' });
   fireRing(w, e, b.phase >= 2 ? 20 : 16, Math.random(), 220);
-  if (config.shake) w.fx.addShake(10);
-  w.stop(0.06);
+  w.groundCrack(e.x, e.y + 10, SPIN_RADIUS * 0.45);
+  if (config.shake) w.fx.addShake(6);
+  w.stop(0.04);
   w.sfx.slam();
   finish(b);
   return true;
@@ -325,7 +355,7 @@ function fireRing(w: World, e: Enemy, n: number, offset: number, speed: number):
 function fireFan(w: World, e: Enemy, b: BossBrain): void {
   const p = w.player;
   const aim = Math.atan2(p.y - 30 - (e.y - e.r * 0.5), p.x - e.x);
-  const n = b.kind === 'knight' ? (b.phase >= 2 ? 9 : 7) : [7, 9, 11][b.phase - 1] ?? 7;
+  const n = b.kind === 'knight' || b.kind === 'toad' ? (b.phase >= 2 ? 9 : 7) : [7, 9, 11][b.phase - 1] ?? 7;
   const spread = 1.0;
   for (let i = 0; i < n; i++) {
     const a = aim + (i / (n - 1) - 0.5) * spread;
@@ -346,8 +376,9 @@ function checkPhase(w: World, e: Enemy, b: BossBrain): void {
   w.bullets.length = 0;
   w.fx.text(e.x, e.y - e.r * 2.4, PHASE_LINES[b.kind][target - 1] ?? '', '#FFD0DE', 42);
   w.waves.push({ x: e.x, y: e.y - e.r * 0.5, radius: 360, life: 0.7, maxLife: 0.7, color: palette.danger });
-  if (config.shake) w.fx.addShake(18);
-  w.stop(0.16);
+  w.groundCrack(e.x, e.y + e.r * 0.3, e.r * 2);
+  if (config.shake) w.fx.addShake(12);
+  w.stop(0.12, true);
   w.sfx.bossAppear();
   if (b.kind === 'queen') w.summon(e.x, e.y, 2, 2);
   b.action = 'none';
