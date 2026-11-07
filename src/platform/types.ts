@@ -96,13 +96,36 @@ export interface ScoreEntry {
   kills: number;
   /** Seconds of battle. */
   playTime: number;
+  /**
+   * On rows read back from a board: who it belongs to, as a scrambled tag
+   * (the real ids stay private), and whether that is a guest or an account.
+   */
+  tag?: string;
+  guest?: boolean;
 }
 
 export type BoardKind = 'all' | 'week';
 
+/** A logged-in leaderboard account. */
+export interface Account {
+  userId: string;
+  name: string;
+}
+
+/**
+ * Why an account action failed; thrown as Error(message = code).
+ * bad_name: breaks the name rules. name_taken: someone has it.
+ * bad_password: too short. wrong_login: name or password wrong.
+ * session: the login expired, log in again. network: anything else.
+ */
+export type AccountError = 'bad_name' | 'name_taken' | 'bad_password' | 'wrong_login' | 'session' | 'network';
+
 export interface PlatformLeaderboard {
   /** True for the shared online board; false for the stand-in kept on this device. */
   readonly online: boolean;
+  /** True when players can register and log in (name + password). */
+  readonly accounts: boolean;
+  /** Logged in scores go to the account; otherwise to this device as a guest. */
   submit(entry: ScoreEntry & { version: string }): Promise<void>;
   /** Best run per player, best first. */
   top(board: BoardKind, limit: number): Promise<ScoreEntry[]>;
@@ -111,6 +134,16 @@ export interface PlatformLeaderboard {
    * only other players (your own older runs never push you down).
    */
   rank(board: BoardKind, wave: number, kills: number, playerId: string): Promise<number>;
+  /** The tag the boards show for this player: the account if logged in, else this device. */
+  myTag(playerId: string): Promise<string>;
+  /** The account this device is logged in to, if any. */
+  account(): Account | null;
+  nameAvailable(name: string): Promise<boolean>;
+  register(name: string, password: string): Promise<Account>;
+  login(name: string, password: string): Promise<Account>;
+  logout(): void;
+  /** Moves this device's guest scores to the logged-in account; returns how many. */
+  claim(playerId: string): Promise<number>;
 }
 
 export interface Platform {
@@ -133,5 +166,5 @@ export interface Platform {
    * Asks for a short line of text (a nickname) over the game. Resolves with
    * the trimmed text, or null if the player cancels.
    */
-  promptText(options: { title: string; value: string; maxLength: number }): Promise<string | null>;
+  promptText(options: { title: string; value: string; maxLength: number; password?: boolean }): Promise<string | null>;
 }

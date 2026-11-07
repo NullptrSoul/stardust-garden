@@ -1452,7 +1452,7 @@ export class Renderer {
     if (game.boardState === 'ready') {
       game.boardRows.forEach((row, i) => {
         const r = S.boardRow(i);
-        const mine = row.playerId === game.save.playerId;
+        const mine = row.tag && game.myTag ? row.tag === game.myTag : row.playerId === game.save.playerId;
         roundRectPath(ctx, r.x, r.y, r.w, r.h, 16);
         paint(ctx, mine ? 'rgba(255, 236, 190, 0.97)' : 'rgba(255, 255, 255, 0.92)', 2, mine ? palette.gold : palette.frameLine);
         const cy = r.y + r.h / 2;
@@ -1484,20 +1484,24 @@ export class Renderer {
         ctx.fillStyle = palette.textDim;
         ctx.font = `600 15px ${FONT}`;
         const m = Math.floor(row.playTime / 60);
-        ctx.fillText(`${c?.name ?? '?'} · 击败 ${row.kills} · ${m} 分钟`, r.x + 120, cy + 14);
+        const guest = game.boardAccounts && row.guest ? '游客 · ' : '';
+        ctx.fillText(`${guest}${c?.name ?? '?'} · 击败 ${row.kills} · ${m} 分钟`, r.x + 120, cy + 14);
         ctx.textAlign = 'right';
         outlinedText(ctx, `第 ${row.wave} 波`, r.x + r.w - 18, cy, 26, '#FFFFFF', 'right', '#5A2E9E');
       });
     }
 
-    // Nickname
-    const nb = S.BOARD_NAME;
-    roundRectPath(ctx, nb.x, nb.y, nb.w, nb.h, 24);
-    paint(ctx, 'rgba(255, 255, 255, 0.95)', 3, palette.frameLine);
-    ctx.fillStyle = palette.ink;
-    ctx.font = `800 22px ${FONT}`;
+    // Who you are on the board; the buttons under it come from the game.
+    const account = game.accountName;
+    const who = account
+      ? `已登录：${account} · 换设备登录也是同一个人`
+      : game.boardAccounts
+        ? '现在是游客 · 注册或登录后，你的无尽成绩才会上榜'
+        : `我的名字：${game.save.name || '还没起名字'}`;
+    ctx.fillStyle = account ? '#5A2E9E' : palette.textDim;
+    ctx.font = `700 17px ${FONT}`;
     ctx.textAlign = 'center';
-    ctx.fillText(game.save.name ? `我的名字：${game.save.name}  ✎` : '✎ 起个名字', nb.x + nb.w / 2, nb.y + nb.h / 2);
+    ctx.fillText(who, 360, 1144);
   }
 
   /** Chapter map: stage nodes on a winding path, with stars earned. */
@@ -2336,10 +2340,36 @@ export class Renderer {
     const e = game.endRank;
     let text = '';
     let tappable = false;
+    if (e.state === 'needaccount') {
+      // Text on the left, two small buttons on the right.
+      ctx.fillStyle = '#5A2E9E';
+      ctx.font = `800 20px ${FONT}`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('🏆 上榜需要账号：', r.x + 6, r.y + r.h / 2);
+      for (const [b, label, color] of [
+        [S.END_RANK_REGISTER, '注册', '#FF8FB0'],
+        [S.END_RANK_LOGIN, '登录', '#8A5CE0'],
+      ] as const) {
+        roundRectPath(ctx, b.x, b.y, b.w, b.h, 21);
+        paint(ctx, color, 2, darken(color, 0.3));
+        ctx.fillStyle = '#FFFFFF';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, b.x + b.w / 2, b.y + b.h / 2);
+      }
+      return;
+    }
     if (e.state === 'noname') {
       text = '🏆 点这里起个名字，上排行榜';
       tappable = true;
     } else if (e.state === 'sending') text = '正在上传成绩……';
+    else if (e.state === 'taken') {
+      text = '名字已被注册，点这里换个游客名';
+      tappable = true;
+    } else if (e.state === 'session') {
+      text = '登录过期了，点这里重新登录';
+      tappable = true;
+    }
     else if (e.state === 'error') {
       text = '成绩没传上去，点这里重试';
       tappable = true;

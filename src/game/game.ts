@@ -3,6 +3,7 @@ import { Rng } from '../engine/rng';
 import { ButtonSet, type Button, type Rect } from '../engine/ui';
 import type { BoardKind, Platform, PlatformStorage, PointerInput, ScoreEntry } from '../platform/types';
 import { GAME_VERSION } from '../leaderboard.config';
+import { NAME_RULE, validName } from '../platform/names';
 import { Sfx } from './audio';
 import { config } from './config';
 import { CHARACTERS } from './data/characters';
@@ -32,6 +33,25 @@ import {
 import * as S from './screens';
 import { bossesForWave, isBlessingWave, isEliteRush, isFinalWave, TIDE_START, type GameMode } from './waves';
 import { SKILL_MAX, World, type Enemy } from './world';
+
+/** What to tell the player when an account action fails (see AccountError). */
+function accountMessage(e: unknown): string {
+  const code = e instanceof Error ? e.message : '';
+  switch (code) {
+    case 'bad_name':
+      return `用户名要${NAME_RULE}`;
+    case 'name_taken':
+      return '这个用户名已经被注册了';
+    case 'bad_password':
+      return '密码至少 6 位';
+    case 'wrong_login':
+      return '用户名或密码不对';
+    case 'session':
+      return '登录过期了，请重新登录';
+    default:
+      return '连不上排行榜，等一下再试';
+  }
+}
 
 /** Seconds a "tap again to confirm" button waits for the second tap. */
 const CONFIRM_TIME = 3;
@@ -151,7 +171,15 @@ export class Game {
   /** Bumped on every load, so a slow old answer can't overwrite a newer one. */
   private boardToken = 0;
   /** The finished endless run's trip to the leaderboard, shown on the end screen. */
-  endRank: { state: 'idle' | 'noname' | 'sending' | 'done' | 'error'; all?: number; week?: number } = { state: 'idle' };
+  endRank: {
+    state: 'idle' | 'noname' | 'needaccount' | 'sending' | 'done' | 'error' | 'taken' | 'session';
+    all?: number;
+    week?: number;
+  } = {
+    state: 'idle',
+  };
+  /** This player's tag on the boards, to highlight their row. */
+  myTag = '';
 
   constructor(platform: Platform) {
     this.platform = platform;
@@ -829,12 +857,24 @@ export class Game {
   }
 
   /**
-   * Sends a finished endless run to the leaderboard once. Without a
-   * nickname yet, the end screen offers to pick one first.
+   * Sends a finished endless run to the leaderboard once. Logged in, it goes
+   * to the account; otherwise it needs a guest nickname first.
    */
   private submitScore(run: Run): void {
     if (run.mode !== 'endless' || run.submitted || run.wave < 2) return;
-    if (!this.save.name) {
+    const board = this.platform.leaderboard;
+    const account = board.account();
+    // The online board only takes accounts: offer to register or log in first.
+    if (board.accounts && !account) {
+      this.endRank = { state: 'needaccount' };
+      const thenSubmit = (ok: boolean): void => {
+        if (ok) this.submitScore(run);
+      };
+      this.ui.add(S.END_RANK_REGISTER, '', 'card', () => void this.register().then(thenSubmit));
+      this.ui.add(S.END_RANK_LOGIN, '', 'card', () => void this.logIn().then(thenSubmit));
+      return;
+    }
+    if (!account && !this.save.name) {
       this.endRank = { state: 'noname' };
       this.ui.add(S.END_RANK, '', 'card', () => {
         void this.askName().then((ok) => {
@@ -847,13 +887,12 @@ export class Game {
     this.endRank = { state: 'sending' };
     const entry = {
       playerId: this.save.playerId,
-      name: this.save.name,
+      name: account?.name ?? this.save.name,
       character: run.character.id,
       wave: run.wave,
       kills: run.kills,
       playTime: run.playTime,
     };
-    const board = this.platform.leaderboard;
     board
       .submit({ ...entry, version: GAME_VERSION })
       .then(() =>
@@ -865,21 +904,113 @@ export class Game {
       .then(([all, week]) => {
         this.endRank = { state: 'done', all, week };
       })
-      .catch(() => {
-        // Let the player try again from the end screen.
+      .catch((e: unknown) => {
+        // Let the player fix it and try again from the end screen.
         run.submitted = false;
-        this.endRank = { state: 'error' };
-        this.ui.add(S.END_RANK, '', 'card', () => this.submitScore(run));
+        const code = e instanceof Error ? e.message : '';
+        if (code === 'name_taken') {
+          this.endRank = { state: 'taken' };
+          this.ui.add(S.END_RANK, '', 'card', () => {
+            void this.askName().then((ok) => {
+              if (ok) this.submitScore(run);
+            });
+          });
+        } else if (code === 'session' || code.includes('login_required')) {
+          this.endRank = { state: 'session' };
+          this.ui.add(S.END_RANK, '', 'card', () => {
+            void this.logIn().then((ok) => {
+              if (ok) this.submitScore(run);
+            });
+          });
+        } else {
+          this.endRank = { state: 'error' };
+          this.ui.add(S.END_RANK, '', 'card', () => this.submitScore(run));
+        }
       });
   }
 
-  /** Asks for a nickname; true once one is saved. */
+  /** Asks for a guest nickname; true once one is saved. */
   private async askName(): Promise<boolean> {
-    const name = await this.platform.promptText({ title: '排行榜上显示的名字', value: this.save.name, maxLength: NAME_MAX });
+    const name = await this.platform.promptText({ title: `游客名字（${NAME_RULE}）`, value: this.save.name, maxLength: NAME_MAX });
     if (!name) return false;
+    if (!validName(name)) {
+      this.fail(`名字要${NAME_RULE}`);
+      return false;
+    }
+    // Registered names belong to their accounts.
+    const board = this.platform.leaderboard;
+    if (board.accounts && !(await board.nameAvailable(name).catch(() => true))) {
+      this.fail('这个名字已经被注册了，换一个吧');
+      return false;
+    }
     this.save.name = name;
     writeSave(this.storage, this.save);
     return true;
+  }
+
+  /** Name + password registration; logs in and claims this device's guest runs. */
+  private async register(): Promise<boolean> {
+    const board = this.platform.leaderboard;
+    const name = await this.platform.promptText({ title: `注册：用户名（${NAME_RULE}）`, value: '', maxLength: NAME_MAX });
+    if (!name) return false;
+    if (!validName(name)) {
+      this.fail(`用户名要${NAME_RULE}`);
+      return false;
+    }
+    try {
+      if (!(await board.nameAvailable(name))) {
+        this.fail('这个用户名已经被注册了');
+        return false;
+      }
+    } catch {
+      this.fail('连不上排行榜，等一下再试');
+      return false;
+    }
+    const password = await this.platform.promptText({ title: '设置密码（至少 6 位）', value: '', maxLength: 64, password: true });
+    if (!password) return false;
+    if (password.length < 6) {
+      this.fail('密码至少 6 位');
+      return false;
+    }
+    const again = await this.platform.promptText({ title: '再输一次密码', value: '', maxLength: 64, password: true });
+    if (again !== password) {
+      if (again !== null) this.fail('两次密码不一样');
+      return false;
+    }
+    try {
+      const account = await board.register(name, password);
+      await this.afterLogin(account.name, '注册成功');
+      return true;
+    } catch (e) {
+      this.fail(accountMessage(e));
+      return false;
+    }
+  }
+
+  private async logIn(): Promise<boolean> {
+    const board = this.platform.leaderboard;
+    const name = await this.platform.promptText({ title: '登录：用户名', value: this.save.name, maxLength: NAME_MAX });
+    if (!name) return false;
+    const password = await this.platform.promptText({ title: '密码', value: '', maxLength: 64, password: true });
+    if (!password) return false;
+    try {
+      const account = await board.login(name, password);
+      await this.afterLogin(account.name, '登录成功');
+      return true;
+    } catch (e) {
+      this.fail(accountMessage(e));
+      return false;
+    }
+  }
+
+  /** After logging in: this device's guest runs move to the account. */
+  private async afterLogin(name: string, done: string): Promise<void> {
+    this.save.name = name;
+    writeSave(this.storage, this.save);
+    const moved = await this.platform.leaderboard.claim(this.save.playerId).catch(() => 0);
+    this.showToast(moved > 0 ? `${done}：${name}，这台设备的 ${moved} 局成绩已归到账号下` : `${done}：${name}`);
+    this.sfx.levelUp();
+    if (this.scene === 'leaderboard') this.enterLeaderboard();
   }
 
   private enterLeaderboard(): void {
@@ -892,11 +1023,35 @@ export class Game {
     });
     this.ui.add(S.BOARD_TAB_ALL, '总榜', 'card', () => this.loadBoard('all'));
     this.ui.add(S.BOARD_TAB_WEEK, '本周', 'card', () => this.loadBoard('week'));
-    this.ui.add(S.BOARD_NAME, '', 'card', () => {
+    const board = this.platform.leaderboard;
+    const rename = (): void => {
       this.sfx.click();
       void this.askName().then((ok) => {
         if (ok) this.showToast(`名字改成「${this.save.name}」，下一局起生效`);
       });
+    };
+    if (!board.accounts) {
+      this.ui.add(S.BOARD_NAME, '✎ 改名字', 'secondary', rename);
+    } else if (board.account()) {
+      this.confirmButton(S.BOARD_ACCOUNT[1], '退出登录', () => {
+        board.logout();
+        this.showToast('已退出登录，现在是游客');
+        this.enterLeaderboard();
+      });
+    } else {
+      // Guests can play but only accounts go on the board.
+      this.ui.add(S.BOARD_PAIR[0], '注册', 'primary', () => {
+        this.sfx.click();
+        void this.register();
+      });
+      this.ui.add(S.BOARD_PAIR[1], '登录', 'secondary', () => {
+        this.sfx.click();
+        void this.logIn();
+      });
+    }
+    this.myTag = '';
+    void board.myTag(this.save.playerId).then((tag) => {
+      this.myTag = tag;
     });
     this.loadBoard(this.board);
   }
@@ -922,6 +1077,15 @@ export class Game {
   /** True when the leaderboard is the shared online one. */
   get boardOnline(): boolean {
     return this.platform.leaderboard.online;
+  }
+
+  /** The logged-in leaderboard account's name, or null for a guest. */
+  get accountName(): string | null {
+    return this.platform.leaderboard.account()?.name ?? null;
+  }
+
+  get boardAccounts(): boolean {
+    return this.platform.leaderboard.accounts;
   }
 
   /** Stars, stardust and the endless record for a run that just ended. */

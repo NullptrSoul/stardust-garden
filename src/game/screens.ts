@@ -65,9 +65,23 @@ export const END_PRIMARY: Rect = { x: 160, y: 790, w: 400, h: 100 };
 export const END_SECONDARY: Rect = { x: 160, y: 910, w: 400, h: 96 };
 /** The leaderboard line on the end screen; tappable to pick a name or retry. */
 export const END_RANK: Rect = { x: 120, y: 714, w: 480, h: 42 };
+/** A guest's run needs an account to go on the board: register or log in right there. */
+export const END_RANK_REGISTER: Rect = { x: 360, y: 714, w: 112, h: 42 };
+export const END_RANK_LOGIN: Rect = { x: 482, y: 714, w: 112, h: 42 };
 
 /** Leaderboard screen. */
 export const BOARD_TAB_ALL: Rect = { x: 150, y: 150, w: 200, h: 64 };
 export const BOARD_TAB_WEEK: Rect = { x: 370, y: 150, w: 200, h: 64 };
 export const boardRow = (i: number): Rect => ({ x: 40, y: 254 + i * 58, w: 640, h: 52 });
 export const BOARD_NAME: Rect = { x: 160, y: 1160, w: 400, h: 76 };
+/** Account buttons under the board: guest name / register / log in, or log out in the middle. */
+/** Register and log in, side by side, for guests. */
+export const BOARD_PAIR: Rect[] = [
+  { x: 110, y: 1164, w: 240, h: 72 },
+  { x: 370, y: 1164, w: 240, h: 72 },
+];
+export const BOARD_ACCOUNT: Rect[] = [
+  { x: 40, y: 1164, w: 200, h: 72 },
+  { x: 260, y: 1164, w: 200, h: 72 },
+  { x: 480, y: 1164, w: 200, h: 72 },
+];

@@ -9,6 +9,7 @@ import { BLESSINGS } from './data/blessings';
 import { WEAPONS } from './data/weapons';
 import { Run } from './run';
 import { createWebLeaderboard, weekStart } from '../platform/web-leaderboard';
+import { accountEmail, validName } from '../platform/names';
 import { awardStars, buyTalent, emptySave, loadSave, resetProgress, stardustFor, submitEndless, totalStars } from './save';
 import {
   bossesForWave,
@@ -242,6 +243,62 @@ describe('Leaderboard', () => {
     expect(calls[1].url).toBe('https://x.example/api/top?board=week&limit=15');
     expect(await board.rank('all', 23, 9, 'p')).toBe(4);
     expect(calls[2].url).toBe('https://x.example/api/rank?board=all&wave=23&kills=9&player_id=p');
+  });
+
+  it('checks account names like the SQL and maps them to a mail-free login', () => {
+    expect(validName('星屑')).toBe(true);
+    expect(validName('Mio_2')).toBe(true);
+    expect(validName('a')).toBe(false);
+    expect(validName('有 空格')).toBe(false);
+    expect(validName('管理员')).toBe(false);
+    expect(validName('Admin')).toBe(false);
+    expect(accountEmail('Mio')).toBe(accountEmail('mio'));
+    const longest = accountEmail('一二三四五六七八九十');
+    expect(longest).toMatch(/^u[0-9a-f]+@stardust-garden\.invalid$/);
+    expect(longest.split('@')[0].length).toBeLessThanOrEqual(64);
+  });
+
+  it('logs in, submits as the account, claims guest runs and logs out', async () => {
+    const data = new Map<string, string>();
+    const storage = { get: (k: string) => data.get(k) ?? null, set: (k: string, v: string) => data.set(k, v) };
+    const calls: Array<{ url: string; auth?: string; body?: string }> = [];
+    const fake = (async (url: string, init?: RequestInit) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      calls.push({ url, auth: headers.Authorization, body: init?.body as string | undefined });
+      const reply = (json: unknown, status = 200) => new Response(JSON.stringify(json), { status });
+      if (url.includes('/auth/v1/signup')) {
+        return reply({ access_token: 'tok', refresh_token: 'ref', expires_in: 3600, user: { id: 'u1', user_metadata: { name: '星屑' } } });
+      }
+      if (url.includes('grant_type=password')) {
+        return JSON.parse(init!.body as string).password === 'right'
+          ? reply({ access_token: 'tok2', refresh_token: 'ref2', expires_in: 3600, user: { id: 'u1', user_metadata: { name: '星屑' } } })
+          : reply({ error_code: 'invalid_credentials', msg: 'Invalid login credentials' }, 400);
+      }
+      if (url.includes('rpc/name_available')) return reply(true);
+      if (url.includes('rpc/claim_guest_scores')) return reply(2);
+      return reply([]);
+    }) as typeof fetch;
+    const board = createWebLeaderboard({ kind: 'supabase', url: 'https://db.example', anonKey: 'sb_publishable_x' }, storage, fake);
+    expect(board.accounts).toBe(true);
+    expect(board.account()).toBeNull();
+    const guestTag = await board.myTag('dev');
+    expect(await board.nameAvailable('星屑')).toBe(true);
+    await expect(board.register('星屑', '123')).rejects.toThrow('bad_password');
+    expect(await board.register('星屑', '123456')).toEqual({ userId: 'u1', name: '星屑' });
+    expect(await board.myTag('dev')).not.toBe(guestTag);
+    await board.submit({ playerId: 'dev', name: '星屑', character: 'shenxi', wave: 5, kills: 9, playTime: 130, version: 'v' });
+    expect(calls[calls.length - 1].url).toBe('https://db.example/rest/v1/scores');
+    expect(calls[calls.length - 1].auth).toBe('Bearer tok');
+    expect(await board.claim('dev')).toBe(2);
+    expect(JSON.parse(calls[calls.length - 1].body!)).toEqual({ p_player_id: 'dev' });
+    // A new page load keeps the login.
+    const again = createWebLeaderboard({ kind: 'supabase', url: 'https://db.example', anonKey: 'sb_publishable_x' }, storage, fake);
+    expect(again.account()).toEqual({ userId: 'u1', name: '星屑' });
+    again.logout();
+    expect(again.account()).toBeNull();
+    expect(await again.myTag('dev')).toBe(guestTag);
+    await expect(again.login('星屑', 'wrong')).rejects.toThrow('wrong_login');
+    expect((await again.login('星屑', 'right')).userId).toBe('u1');
   });
 
   it('starts the week on Monday', () => {

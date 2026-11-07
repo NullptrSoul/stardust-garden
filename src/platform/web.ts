@@ -111,7 +111,7 @@ export function createWebPlatform(canvas: HTMLCanvasElement): Platform {
 }
 
 /** A small text box over the game, for the leaderboard nickname. */
-function promptText(options: { title: string; value: string; maxLength: number }): Promise<string | null> {
+function promptText(options: { title: string; value: string; maxLength: number; password?: boolean }): Promise<string | null> {
   return new Promise((resolve) => {
     const shade = document.createElement('div');
     shade.style.cssText =
@@ -127,6 +127,10 @@ function promptText(options: { title: string; value: string; maxLength: number }
     const input = document.createElement('input');
     input.value = options.value;
     input.maxLength = options.maxLength;
+    if (options.password) {
+      input.type = 'password';
+      input.autocomplete = 'current-password';
+    }
     input.style.cssText =
       'box-sizing:border-box;width:100%;padding:10px 12px;font-size:18px;border-radius:10px;' +
       'border:2px solid #B9A8F0;outline:none;color:#3D3366;';

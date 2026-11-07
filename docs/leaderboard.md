@@ -49,3 +49,31 @@
 ## 以后上微信
 
 微信小游戏版会换成微信自己的好友排行（不用服务器），全服榜用微信云开发。游戏逻辑通过 `Platform.leaderboard` 接口取数，换平台只要换实现。
+
+## 账号（2026-11-07 起）
+
+排行榜**只收登录账号的成绩**。游客照样能玩，但要注册或登录才能上榜；旧的游客成绩已经清空，从零开始记录。
+
+- 注册只要**用户名 + 密码**：用户名 2～10 个字（中文、字母、数字、下划线），不分大小写不能重名，「管理员」「官方」等保留名不能用；密码至少 6 位。
+- 账号密码由 Supabase Auth 管，我们不存密码。游戏把用户名转成一个收不到信的内部邮箱（`u<十六进制>@stardust-garden.invalid`）去注册，所以 Supabase 里 **Confirm email 必须关着**（Authentication → Sign In / Providers）。
+- 登录一次，这个浏览器就一直保持登录；换设备登录同一个账号，成绩算同一个人。
+- 榜上不公开任何真实 id，只显示一个打乱过的 tag，用来高亮自己那行。
+- 数据库设置：在跑过 `leaderboard.sql` 的库上，再跑一次 `leaderboard-accounts.sql`（可重复运行）。
+
+### 玩家忘了密码
+
+没有邮箱就没有自动找回，需要你在 Supabase 的 SQL Editor 里帮他重设。把「用户名」和「新密码」换掉再运行：
+
+```sql
+update auth.users set encrypted_password = crypt('新密码', gen_salt('bf'))
+where id = (select user_id from public.profiles where name_key = lower('用户名'));
+```
+
+### 删账号或刷榜成绩
+
+```sql
+-- 删某个账号的所有成绩
+delete from public.scores where user_id = (select user_id from public.profiles where name_key = lower('用户名'));
+-- 连账号一起删（资料会跟着删掉）
+delete from auth.users where id = (select user_id from public.profiles where name_key = lower('用户名'));
+```
