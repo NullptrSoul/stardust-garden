@@ -1,3 +1,4 @@
+import type { Surface } from '../../platform/types';
 import type { EnemyLook } from '../data/enemies';
 import { lighten, palette, rgba, shade } from '../palette';
 import { circle, ellipse, paint, sparklePath } from './draw';
@@ -40,6 +41,151 @@ interface Face {
 /** All monsters are drawn at this collision radius, then scaled. */
 const BASE_R = 26;
 
+/**
+ * A monster drawn once into an image, for crowds: drawing 100+ monsters from
+ * paths every frame took most of the frame time (2026-11-07 profile:
+ * ~3,000 fills and ~480 gradients per frame). The image keeps the body as
+ * it looks at rest, eyes forward; bob, squash, facing, pop-in and the hit
+ * flash are still applied when it is drawn.
+ */
+export interface MonsterSprite {
+  image: Surface;
+  /** White silhouette for the hit flash. */
+  white: Surface;
+  /** Image pixels per monster unit (BASE_R space). */
+  k: number;
+  /** Where the monster's feet (0, 0) sit in the image, in pixels. */
+  ox: number;
+  oy: number;
+}
+
+/** Room around the feet that every monster fits in, in BASE_R units. */
+const BAKE_LEFT = 100;
+const BAKE_RIGHT = 100;
+const BAKE_UP = 150;
+const BAKE_DOWN = 30;
+
+export function bakeMonster(
+  make: (w: number, h: number) => Surface,
+  look: EnemyLook,
+  color: string,
+  k: number,
+  menace = 0,
+): MonsterSprite {
+  const w = Math.ceil((BAKE_LEFT + BAKE_RIGHT) * k);
+  const h = Math.ceil((BAKE_UP + BAKE_DOWN) * k);
+  const big = make(w, h);
+  const bctx = big.getContext('2d')!;
+  bctx.translate(BAKE_LEFT * k, BAKE_UP * k);
+  bctx.scale(k, k);
+  bctx.lineJoin = 'round';
+  bctx.lineCap = 'round';
+  const pose: MonsterPose = {
+    look,
+    color,
+    x: 0,
+    y: 0,
+    r: BASE_R,
+    facing: 1,
+    flash: 0,
+    pulse: 0,
+    appear: 1,
+    time: 0,
+    seed: 0,
+    lookX: 1,
+    lookY: 0,
+    alert: false,
+    menace,
+    lift: 0,
+  };
+  drawBody(bctx, pose, { lookX: 0.9, lookY: 0.3, blink: false, hurt: false, menace });
+
+  // Trim to what was drawn, plus a pixel of air.
+  const data = bctx.getImageData(0, 0, w, h).data;
+  let x0 = w;
+  let y0 = h;
+  let x1 = -1;
+  let y1 = -1;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (data[(y * w + x) * 4 + 3] === 0) continue;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+  }
+  if (x1 < 0) (x0 = 0), (y0 = 0), (x1 = 0), (y1 = 0);
+  x0 = Math.max(0, x0 - 1);
+  y0 = Math.max(0, y0 - 1);
+  x1 = Math.min(w - 1, x1 + 1);
+  y1 = Math.min(h - 1, y1 + 1);
+  const tw = x1 - x0 + 1;
+  const th = y1 - y0 + 1;
+  const image = make(tw, th);
+  image.getContext('2d')!.drawImage(big, x0, y0, tw, th, 0, 0, tw, th);
+  const white = make(tw, th);
+  const wctx = white.getContext('2d')!;
+  wctx.drawImage(image, 0, 0);
+  wctx.globalCompositeOperation = 'source-in';
+  wctx.fillStyle = '#FFFFFF';
+  wctx.fillRect(0, 0, tw, th);
+  return { image, white, k, ox: BAKE_LEFT * k - x0, oy: BAKE_UP * k - y0 };
+}
+
+function auraStops(g: CanvasGradient, aura: string | undefined, inner: number, mid: number): void {
+  g.addColorStop(inner, 'rgba(58, 31, 92, 0.55)');
+  g.addColorStop(mid, aura ? rgba(aura, 0.3) : 'rgba(120, 30, 90, 0.25)');
+  g.addColorStop(1, 'rgba(58, 31, 92, 0)');
+}
+
+/** The elite aura's glow as an image: a round gradient, squashed into an ellipse when drawn. */
+export function bakeAuraGlow(make: (w: number, h: number) => Surface, aura: string | undefined): Surface {
+  const size = 128;
+  const glow = make(size, size);
+  const g2 = glow.getContext('2d')!;
+  const g = g2.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  // The live gradient runs from a fifth of the radius to the edge, with its
+  // middle stop at 0.6 of that span: 0.2 + 0.8 * 0.6 = 0.68 here.
+  auraStops(g, aura, 0.2, 0.68);
+  g2.fillStyle = g;
+  g2.fillRect(0, 0, size, size);
+  return glow;
+}
+
+/** Like drawMonster, but from a baked image (no aura, alert bubble or face changes). */
+export function drawMonsterSprite(
+  ctx: CanvasRenderingContext2D,
+  m: MonsterPose,
+  sprite: MonsterSprite,
+  glow?: Surface,
+): void {
+  const pop = easeOutBack(m.appear);
+  const s = (m.r / BASE_R) * Math.max(0.05, pop);
+  const bob = Math.sin(m.time * 4 + m.seed * 1.7);
+  const sx = 1 + bob * 0.035 + m.pulse * 0.16;
+  const sy = 1 - bob * 0.035 - m.pulse * 0.12;
+  const feetY = m.y + m.r * 0.5;
+  ctx.fillStyle = 'rgba(40, 30, 80, 0.22)';
+  ellipse(ctx, m.x, feetY + 2, m.r * 1.05 * Math.max(0.3, pop), m.r * 0.3);
+  ctx.fill();
+  if (m.menace > 0) drawAura(ctx, m, feetY, pop, glow);
+  ctx.save();
+  ctx.translate(m.x, feetY - m.lift);
+  ctx.scale(m.facing * s * sx, s * sy);
+  const k = sprite.k;
+  const w = sprite.image.width / k;
+  const h = sprite.image.height / k;
+  const x = -sprite.ox / k;
+  const y = -sprite.oy / k;
+  ctx.drawImage(sprite.image, x, y, w, h);
+  if (m.flash > 0) {
+    ctx.globalAlpha = Math.min(1, m.flash * 0.8);
+    ctx.drawImage(sprite.white, x, y, w, h);
+  }
+  ctx.restore();
+}
+
 export function drawMonster(ctx: CanvasRenderingContext2D, m: MonsterPose): void {
   const pop = easeOutBack(m.appear);
   const s = (m.r / BASE_R) * Math.max(0.05, pop);
@@ -73,6 +219,23 @@ export function drawMonster(ctx: CanvasRenderingContext2D, m: MonsterPose): void
   ctx.scale(m.facing * s * sx, s * sy);
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
+  drawBody(ctx, m, face);
+  ctx.restore();
+  if (m.alert) {
+    const bx = m.x + m.r * 0.9;
+    const by = feetY - m.r * 2.4 - m.lift;
+    circle(ctx, bx, by, 13);
+    paint(ctx, '#FFFFFF', 2.5, palette.danger);
+    ctx.fillStyle = palette.danger;
+    ctx.font = '900 19px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('!', bx, by + 1);
+  }
+}
+
+/** The monster itself, in its own space: feet at 0,0, facing right, BASE_R size. */
+function drawBody(ctx: CanvasRenderingContext2D, m: MonsterPose, face: Face): void {
   switch (m.look) {
     case 'slime':
       drawSlime(ctx, m, face);
@@ -123,31 +286,22 @@ export function drawMonster(ctx: CanvasRenderingContext2D, m: MonsterPose): void
       drawToad(ctx, m, face);
       break;
   }
-  ctx.restore();
-  if (m.alert) {
-    const bx = m.x + m.r * 0.9;
-    const by = feetY - m.r * 2.4 - m.lift;
-    circle(ctx, bx, by, 13);
-    paint(ctx, '#FFFFFF', 2.5, palette.danger);
-    ctx.fillStyle = palette.danger;
-    ctx.font = '900 19px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('!', bx, by + 1);
-  }
 }
 
 /** Dark swirling aura and rising wisps under elites and bosses. */
-function drawAura(ctx: CanvasRenderingContext2D, m: MonsterPose, feetY: number, pop: number): void {
+function drawAura(ctx: CanvasRenderingContext2D, m: MonsterPose, feetY: number, pop: number, glow?: Surface): void {
   const r = m.r * (m.menace >= 2 ? 1.9 : 1.6) * pop;
   const pulse = 0.85 + 0.15 * Math.sin(m.time * 4 + m.seed);
-  const g = ctx.createRadialGradient(m.x, feetY, r * 0.2, m.x, feetY, r * pulse);
-  g.addColorStop(0, 'rgba(58, 31, 92, 0.55)');
-  g.addColorStop(0.6, m.aura ? rgba(m.aura, 0.3) : 'rgba(120, 30, 90, 0.25)');
-  g.addColorStop(1, 'rgba(58, 31, 92, 0)');
-  ctx.fillStyle = g;
-  ellipse(ctx, m.x, feetY, r * pulse, r * 0.45 * pulse);
-  ctx.fill();
+  if (glow) {
+    // The same glow, baked once (see bakeAuraGlow).
+    ctx.drawImage(glow, m.x - r * pulse, feetY - r * 0.45 * pulse, r * 2 * pulse, r * 0.9 * pulse);
+  } else {
+    const g = ctx.createRadialGradient(m.x, feetY, r * 0.2, m.x, feetY, r * pulse);
+    auraStops(g, m.aura, 0, 0.6);
+    ctx.fillStyle = g;
+    ellipse(ctx, m.x, feetY, r * pulse, r * 0.45 * pulse);
+    ctx.fill();
+  }
   const ring = 0.35 + 0.25 * Math.sin(m.time * 6 + m.seed);
   ctx.strokeStyle = m.aura ? rgba(m.aura, ring + 0.2) : `rgba(255, 59, 107, ${ring})`;
   ctx.lineWidth = 2.5;

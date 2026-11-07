@@ -7,7 +7,8 @@ import { RIGS } from './art/rigs';
 import { circle, diamondPath, ellipse, FONT, formatNumber, heartPath, outlinedText, paint, sparklePath } from './art/draw';
 import { bakeBackdrop, bakeCloud, bakeIsland, type IslandSprite } from './art/ground';
 import { drawCandy, drawChest, drawItemIcon, drawLock, drawShardIcon, drawWeaponIcon } from './art/icons';
-import { drawMonster } from './art/monsters';
+import { bakeAuraGlow, bakeMonster, drawMonster, drawMonsterSprite, type MonsterSprite } from './art/monsters';
+import type { EnemyLook } from './data/enemies';
 import { config } from './config';
 import { avatarImagePath, CHARACTERS, chibiImagePath, portraitImagePath, type CharacterDef } from './data/characters';
 import { activeItemSets, ITEMS, setsForItem } from './data/items';
@@ -38,6 +39,9 @@ import { isWindingUp } from './boss';
 import { bossTimeLimit, MODE_NAMES, TIDE_START, tideScale } from './waves';
 import { TIPS } from './game';
 import { SETTING_KEYS } from './save';
+
+/** More monsters than this on the field and ordinary ones are drawn from baked images. */
+const CROWD_SPRITES = 30;
 
 const SETTING_INFO: Record<string, { name: string; desc: string }> = {
   sound: { name: '音效', desc: '打击、拾取、技能等声音' },
@@ -89,6 +93,9 @@ export class Renderer {
   private readonly images = new Map<string, ImageSource>();
   /** Layered character art, by character id, once the atlas has loaded. */
   private readonly rigs = new Map<string, LoadedRig>();
+  /** Baked monster images for crowds, by look and color; cleared when the screen size changes. */
+  private readonly monsterSprites = new Map<string, MonsterSprite>();
+  private readonly auraGlows = new Map<string, Surface>();
   private readonly playerMotion: RigMotion = { blend: 0, last: 0 };
   private readonly drawList: Array<{ y: number; draw: () => void }> = [];
   /**
@@ -125,6 +132,7 @@ export class Renderer {
   }
 
   resize(): void {
+    this.monsterSprites.clear();
     const v = this.platform.viewport();
     this.scale = Math.min(v.width / L.DESIGN_W, v.height / L.DESIGN_H);
     this.offsetX = (v.width - L.DESIGN_W * this.scale) / 2;
@@ -424,6 +432,9 @@ export class Renderer {
       ellipse(ctx, whale.x, whale.y, 240, 90);
       ctx.stroke();
     }
+    // In a crowd, ordinary monsters come from baked images: drawing them all
+    // from paths every frame cost most of the frame on phones.
+    const crowd = world.enemies.length > CROWD_SPRITES;
     for (const e of world.enemies) {
       if (!e.alive) continue;
       if (e.slow > 0) {
@@ -441,8 +452,9 @@ export class Renderer {
       }
       list.push({
         y: e.y,
-        draw: () =>
-          drawMonster(ctx, {
+        draw: () => {
+          const alert = e.phase === 'windup' || (e.brain !== null && isWindingUp(e.brain));
+          const pose = {
             look: e.def.look,
             color: e.color,
             // A quick jitter right after a hit.
@@ -457,11 +469,19 @@ export class Renderer {
             seed: e.id,
             lookX: p.x,
             lookY: p.y - 40,
-            alert: e.phase === 'windup' || (e.brain !== null && isWindingUp(e.brain)),
+            alert,
             menace: e.def.boss ? 2 : e.elite ? 1 : 0,
             lift: e.brain ? e.brain.z : 0,
             aura: e.affix ? AFFIXES[e.affix].color : undefined,
-          }),
+          };
+          // Bosses and monsters winding up keep the full live drawing.
+          if (crowd && !alert && !e.def.boss && e.brain === null) {
+            const menace = e.elite ? 1 : 0;
+            drawMonsterSprite(ctx, pose, this.monsterSprite(e.def.look, e.color, menace), menace ? this.auraGlow(pose.aura) : undefined);
+          } else {
+            drawMonster(ctx, pose);
+          }
+        },
       });
     }
     // Elite affix names and HP bars, above everything on the ground.
@@ -1413,6 +1433,29 @@ export class Renderer {
     ctx.fillStyle = 'rgba(61, 51, 102, 0.4)';
     ctx.font = `600 15px ${FONT}`;
     ctx.fillText('试玩版 · 进度只保存在这台设备上', 360, 1258);
+  }
+
+  /** The baked image for a monster look and color, at the current screen scale. */
+  private monsterSprite(look: EnemyLook, color: string, menace: number): MonsterSprite {
+    const key = `${look}|${color}|${menace}`;
+    let sprite = this.monsterSprites.get(key);
+    if (!sprite) {
+      // Pixels per monster unit: screen scale, with room for bigger monsters.
+      const k = clamp(this.scale * this.platform.viewport().dpr * 1.6, 0.5, 4);
+      sprite = bakeMonster((w, h) => this.platform.createCanvas(w, h), look, color, k, menace);
+      this.monsterSprites.set(key, sprite);
+    }
+    return sprite;
+  }
+
+  private auraGlow(aura: string | undefined): Surface {
+    const key = aura ?? '';
+    let glow = this.auraGlows.get(key);
+    if (!glow) {
+      glow = bakeAuraGlow((w, h) => this.platform.createCanvas(w, h), aura);
+      this.auraGlows.set(key, glow);
+    }
+    return glow;
   }
 
   /** Endless leaderboard: all-time or this week, best run per player. */
