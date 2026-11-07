@@ -9,6 +9,8 @@ import type {
   ToneOptions,
   Viewport,
 } from './types';
+import { LEADERBOARD } from '../leaderboard.config';
+import { createWebLeaderboard } from './web-leaderboard';
 
 export function createWebPlatform(canvas: HTMLCanvasElement): Platform {
   let vp: Viewport = { width: 1, height: 1, dpr: 1 };
@@ -29,6 +31,7 @@ export function createWebPlatform(canvas: HTMLCanvasElement): Platform {
   }
   window.addEventListener('resize', resize);
   resize();
+  const storage = createWebStorage();
 
   function emit(type: PointerInput['type'], e: PointerEvent): void {
     const rect = canvas.getBoundingClientRect();
@@ -54,6 +57,18 @@ export function createWebPlatform(canvas: HTMLCanvasElement): Platform {
   canvas.addEventListener('pointerup', (e) => emit('up', e));
   canvas.addEventListener('pointercancel', (e) => emit('cancel', e));
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // Browsers only let sound start from a user gesture, and phones are picky
+  // about which one: iOS Safari wants the end of a touch, not its start. Try
+  // on every kind of gesture, every time: after switching apps, iOS leaves
+  // the audio "interrupted" and only a new gesture brings it back.
+  const audio = createWebAudio();
+  for (const type of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown']) {
+    window.addEventListener(type, () => audio.unlock(), { capture: true, passive: true });
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') audio.unlock();
+  });
 
   return {
     canvas,
@@ -88,9 +103,63 @@ export function createWebPlatform(canvas: HTMLCanvasElement): Platform {
       requestAnimationFrame(() => cb());
     },
     now: () => performance.now(),
-    audio: createWebAudio(),
-    storage: createWebStorage(),
+    audio,
+    storage,
+    leaderboard: createWebLeaderboard(LEADERBOARD, storage),
+    promptText,
   };
+}
+
+/** A small text box over the game, for the leaderboard nickname. */
+function promptText(options: { title: string; value: string; maxLength: number }): Promise<string | null> {
+  return new Promise((resolve) => {
+    const shade = document.createElement('div');
+    shade.style.cssText =
+      'position:fixed;inset:0;z-index:10;display:flex;align-items:center;justify-content:center;' +
+      'background:rgba(30,20,60,0.55);font-family:system-ui,"PingFang SC","Microsoft YaHei",sans-serif;';
+    const box = document.createElement('div');
+    box.style.cssText =
+      'width:min(84vw,360px);padding:20px;border-radius:18px;background:#fff;' +
+      'box-shadow:0 8px 30px rgba(0,0,0,.3);border:3px solid #B9A8F0;color:#3D3366;';
+    const title = document.createElement('div');
+    title.textContent = options.title;
+    title.style.cssText = 'font-weight:800;font-size:18px;margin-bottom:12px;text-align:center;';
+    const input = document.createElement('input');
+    input.value = options.value;
+    input.maxLength = options.maxLength;
+    input.style.cssText =
+      'box-sizing:border-box;width:100%;padding:10px 12px;font-size:18px;border-radius:10px;' +
+      'border:2px solid #B9A8F0;outline:none;color:#3D3366;';
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:10px;margin-top:14px;';
+    const button = (label: string, primary: boolean): HTMLButtonElement => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.style.cssText =
+        'flex:1;padding:10px;font-size:17px;font-weight:800;border-radius:12px;border:none;cursor:pointer;' +
+        (primary ? 'background:#FF8FB0;color:#fff;' : 'background:#E8E2FA;color:#3D3366;');
+      return b;
+    };
+    const cancel = button('取消', false);
+    const ok = button('确定', true);
+    row.append(cancel, ok);
+    box.append(title, input, row);
+    shade.append(box);
+    document.body.append(shade);
+    const done = (value: string | null): void => {
+      shade.remove();
+      resolve(value === null ? null : value.trim().slice(0, options.maxLength) || null);
+    };
+    ok.addEventListener('click', () => done(input.value));
+    cancel.addEventListener('click', () => done(null));
+    // Typing must not reach the game's keyboard controls.
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') done(input.value);
+      if (e.key === 'Escape') done(null);
+    });
+    setTimeout(() => input.focus(), 0);
+  });
 }
 
 function createWebAudio(): PlatformAudio {
@@ -106,6 +175,15 @@ function createWebAudio(): PlatformAudio {
       window.AudioContext ??
       (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AC) return null;
+    // Safari 16.4+: play as game audio, so the iPhone silent switch doesn't mute it.
+    const session = (navigator as unknown as { audioSession?: { type: string } }).audioSession;
+    if (session) {
+      try {
+        session.type = 'playback';
+      } catch {
+        // Not supported here; sound still works with the ringer on.
+      }
+    }
     ctx = new AC();
     // A compressor keeps dozens of overlapping bounce tones from clipping.
     const comp = ctx.createDynamicsCompressor();
@@ -123,7 +201,9 @@ function createWebAudio(): PlatformAudio {
   return {
     unlock() {
       const c = ensure();
-      if (c && c.state === 'suspended') void c.resume();
+      // 'suspended' before the first gesture; 'interrupted' on iOS after a call
+      // or an app switch. Either way, try again.
+      if (c && c.state !== 'running') c.resume().catch(() => undefined);
     },
     tone(o: ToneOptions) {
       if (!ctx || !master || ctx.state !== 'running') return;

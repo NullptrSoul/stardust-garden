@@ -84,6 +84,35 @@ export interface PlatformStorage {
   set(key: string, value: string): void;
 }
 
+/** One endless run on a leaderboard. */
+export interface ScoreEntry {
+  /** Random id kept on the device; ties a player's runs together. */
+  playerId: string;
+  name: string;
+  /** Character id. */
+  character: string;
+  /** Wave the run ended on. */
+  wave: number;
+  kills: number;
+  /** Seconds of battle. */
+  playTime: number;
+}
+
+export type BoardKind = 'all' | 'week';
+
+export interface PlatformLeaderboard {
+  /** True for the shared online board; false for the stand-in kept on this device. */
+  readonly online: boolean;
+  submit(entry: ScoreEntry & { version: string }): Promise<void>;
+  /** Best run per player, best first. */
+  top(board: BoardKind, limit: number): Promise<ScoreEntry[]>;
+  /**
+   * 1-based place a run with this wave and kills takes on the board, counting
+   * only other players (your own older runs never push you down).
+   */
+  rank(board: BoardKind, wave: number, kills: number, playerId: string): Promise<number>;
+}
+
 export interface Platform {
   readonly canvas: Surface;
   viewport(): Viewport;
@@ -99,4 +128,10 @@ export interface Platform {
   now(): number;
   readonly audio: PlatformAudio;
   readonly storage: PlatformStorage;
+  readonly leaderboard: PlatformLeaderboard;
+  /**
+   * Asks for a short line of text (a nickname) over the game. Resolves with
+   * the trimmed text, or null if the player cancels.
+   */
+  promptText(options: { title: string; value: string; maxLength: number }): Promise<string | null>;
 }

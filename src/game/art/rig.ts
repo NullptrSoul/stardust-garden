@@ -120,8 +120,8 @@ export function isBlinking(time: number): boolean {
  */
 const BONE: Record<string, string> = {
   legs: 'legs',
-  leg_back: 'legs',
-  leg_front: 'legs',
+  leg_back: 'legBack',
+  leg_front: 'legFront',
   tail: 'tail',
   body: 'upper',
   skirt: 'skirt',
@@ -177,6 +177,9 @@ export function drawRig(ctx: CanvasRenderingContext2D, rig: LoadedRig, p: RigPos
     upper,
     head,
     legs: about(j.legs, 0, 1, 1, step * 0.07 * k * amp('legs')),
+    // Separate legs step in turn.
+    legBack: about(j.legs, 0, 1, 1, -step * 0.05 * k * amp('legs')),
+    legFront: about(j.legs, 0, 1, 1, step * 0.05 * k * amp('legs')),
     tail: mul(upper, about(j.tail, (Math.sin(t * 2.1) * 0.05 + k * Math.sin(run * 0.5) * 0.05) * amp('tail'))),
     skirt: mul(
       upper,

@@ -99,9 +99,18 @@ export function synergyMods(cls: ClassId, weaponIds: readonly string[]): StatMod
 }
 
 /** "每带一把「法术」武器：+6% 伤害，+3% 攻速" */
+/** Weapons that carry the character's class tag hit this much harder. */
+export const CLASS_WEAPON_BONUS = 0.15;
+
+/** True when the weapon carries the character's class tag. */
+export function fitsClass(cls: ClassId, weaponId: string): boolean {
+  return weaponById(weaponId).tags.includes(CLASSES[cls].tag);
+}
+
 export function describeClass(cls: ClassId): string {
   const c = CLASSES[cls];
-  return `每带一把「${TAG_INFO[c.tag].name}」武器：${describeMods(c.perWeapon).join('，')}`;
+  const tag = TAG_INFO[c.tag].name;
+  return `「${tag}」武器伤害 +${Math.round(CLASS_WEAPON_BONUS * 100)}%；每带一把再加 ${describeMods(c.perWeapon).join('，')}`;
 }
 
 export type ComboId =

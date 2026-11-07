@@ -13,29 +13,62 @@ export interface WaveContext {
   wave: number;
   mode: GameMode;
   stage: StageDef | null;
+  /** Seconds of battle so far this run (endless uses it for the tide). */
+  playTime?: number;
+  /** Endless prices stop climbing after this wave (a blessing), or null. */
+  priceFreezeWave?: number | null;
 }
 
 /** Past wave 10, endless mode brings a boss back every this many waves. */
 const ENDLESS_BOSS_EVERY = 5;
 const ENDLESS_BOSSES = ['king', 'darkKnight', 'queen'];
-/** Seconds per regular endless wave after wave 10. */
-const ENDLESS_WAVE_TIME = 40;
+/** Seconds per regular endless wave after wave 10, and after ENDLESS_LATE_WAVE. */
+const ENDLESS_WAVE_TIME = 30;
+const ENDLESS_LATE_WAVE_TIME = 25;
+const ENDLESS_LATE_WAVE = 30;
 /**
- * Past wave 10, endless monsters get this much tougher again every wave, on
- * top of the normal growth. Builds stop growing at some point, so every run
- * ends somewhere: that spread is what the leaderboard ranks.
+ * Endless monster HP past wave 10, on top of the normal growth: one step at
+ * wave 11, a fast ramp while builds still grow fast, then a slow one.
+ *
+ * Measured with the sim's power report (2026-11-07): builds grow ~20% a
+ * wave up to wave 20 but only ~7% after (levels slow down, prices climb).
+ * With a flat 1.15 the monsters kept growing ~22% a wave, so clearing a pack
+ * went from 1.4 s at wave 20 to 4-6 s past wave 30 and playtesters said the
+ * monsters became unkillable. Now HP roughly keeps pace with the build after
+ * wave 20, and runs end on monster damage and numbers instead.
  */
+const ENDLESS_HP_STEP = 1.6;
 const ENDLESS_RAMP = 1.15;
-/** Same idea for monster damage (contact and bullets). */
+/** Waves past 10 that use the fast ramp; after that the slow one. */
+const ENDLESS_FAST_WAVES = 10;
+const ENDLESS_SLOW_RAMP = 1.05;
+/**
+ * Same idea for monster damage (contact and bullets). Past wave 20 it slows
+ * down, so dodging and a good build can hold out for a while: that spread is
+ * what the leaderboard ranks. The tide below still ends every run.
+ */
+const ENDLESS_DAMAGE_STEP = 1.3;
 const ENDLESS_DAMAGE_RAMP = 1.12;
+const ENDLESS_LATE_DAMAGE_RAMP = 1.06;
+const ENDLESS_LATE_DAMAGE_WAVE = 20;
 /** Seconds an endless boss stays before it leaves. */
-const ENDLESS_BOSS_TIME = 90;
+const ENDLESS_BOSS_TIME = 60;
 /** Endless shop prices past wave 10, per wave. */
 const ENDLESS_PRICE_RAMP = 1.1;
+/**
+ * The abyss tide: after this many seconds of endless battle, monster HP and
+ * damage double every TIDE_DOUBLING seconds. It caps a run at about 30
+ * minutes however strong the build is; how many waves a player fits in
+ * before that is what the leaderboard ranks.
+ */
+export const TIDE_START = 25 * 60;
+const TIDE_DOUBLING = 90;
 /** Endless starts with no shards to spend, so its first bosses go easier. */
 const ENDLESS_EARLY_BOSS_HP = 0.45;
-/** Endless spawns speed up by this share per wave, down to half the wave-10 pace. */
-const ENDLESS_SPAWN_SPEEDUP = 0.03;
+/** Endless spawns jump to this share of the wave-10 pace at wave 11... */
+const ENDLESS_SPAWN_STEP = 0.85;
+/** ...then speed up by this share per wave, down to half the wave-10 pace. */
+const ENDLESS_SPAWN_SPEEDUP = 0.025;
 const MAX_ELITE_CHANCE = 0.5;
 const ELITE_RUSH_CHANCE = 0.35;
 
@@ -56,7 +89,25 @@ export function waveDuration(r: WaveContext): number {
   if (bossesForWave(r).length > 0) return 0;
   if (r.stage) return r.stage.waveTime[r.wave - 1] || 30;
   if (r.wave <= config.waveCount) return config.waveDurations[r.wave - 1] || 30;
-  return ENDLESS_WAVE_TIME;
+  return r.wave > ENDLESS_LATE_WAVE ? ENDLESS_LATE_WAVE_TIME : ENDLESS_WAVE_TIME;
+}
+
+/**
+ * Endless only: how much stronger the abyss tide makes monsters right now
+ * (1 before it starts).
+ */
+export function tideScale(r: WaveContext): number {
+  const over = (r.playTime ?? 0) - TIDE_START;
+  if (r.mode !== 'endless' || over <= 0) return 1;
+  return 2 ** (over / TIDE_DOUBLING);
+}
+
+/**
+ * Endless only: a boss beaten from wave 10 on grants an abyss blessing (one
+ * of three to choose). A boss that runs out of time and leaves grants none.
+ */
+export function isBlessingWave(r: WaveContext): boolean {
+  return r.mode === 'endless' && r.wave >= config.waveCount && bossesForWave(r).length > 0;
 }
 
 /**
@@ -96,8 +147,11 @@ function hpCurve(wave: number): number {
 
 /** Endless mode's extra toughness past wave 10 (1 before that, and in stages). */
 function endlessRamp(r: WaveContext): number {
-  if (r.mode !== 'endless') return 1;
-  return ENDLESS_RAMP ** Math.max(0, r.wave - config.waveCount);
+  const past = r.wave - config.waveCount;
+  if (r.mode !== 'endless' || past <= 0) return 1;
+  const fast = Math.min(past - 1, ENDLESS_FAST_WAVES - 1);
+  const slow = Math.max(0, past - ENDLESS_FAST_WAVES);
+  return ENDLESS_HP_STEP * ENDLESS_RAMP ** fast * ENDLESS_SLOW_RAMP ** slow;
 }
 
 /**
@@ -105,20 +159,28 @@ function endlessRamp(r: WaveContext): number {
  * wave 10, so late-game shards can't buy unlimited stacks of items.
  */
 export function priceScale(r: WaveContext): number {
-  const ramp = r.mode === 'endless' ? ENDLESS_PRICE_RAMP ** Math.max(0, r.wave - config.waveCount) : 1;
-  return (1 + config.priceGrowth * (r.wave - 1)) * ramp;
+  // The price-freeze blessing stops prices where they were.
+  const wave = r.priceFreezeWave ? Math.min(r.wave, r.priceFreezeWave) : r.wave;
+  const ramp = r.mode === 'endless' ? ENDLESS_PRICE_RAMP ** Math.max(0, wave - config.waveCount) : 1;
+  return (1 + config.priceGrowth * (wave - 1)) * ramp;
 }
 
 /** A monster's hit (contact or bullet) on this wave, from its wave-1 value. */
 export function enemyDamage(r: WaveContext, base: number): number {
   const bonus = Math.floor((difficultyWave(r) - 1) / config.enemyDamageEvery);
-  const ramp = r.mode === 'endless' ? ENDLESS_DAMAGE_RAMP ** Math.max(0, r.wave - config.waveCount) : 1;
-  return Math.round((base + bonus) * ramp);
+  const past = r.wave - config.waveCount;
+  let ramp = 1;
+  if (r.mode === 'endless' && past > 0) {
+    const fast = Math.min(past - 1, ENDLESS_LATE_DAMAGE_WAVE - config.waveCount - 1);
+    const slow = Math.max(0, r.wave - ENDLESS_LATE_DAMAGE_WAVE);
+    ramp = ENDLESS_DAMAGE_STEP * ENDLESS_DAMAGE_RAMP ** fast * ENDLESS_LATE_DAMAGE_RAMP ** slow;
+  }
+  return Math.round((base + bonus) * ramp * tideScale(r));
 }
 
 /** HP multiplier for regular monsters. */
 export function enemyHpScale(r: WaveContext): number {
-  return hpCurve(difficultyWave(r)) * endlessRamp(r);
+  return hpCurve(difficultyWave(r)) * endlessRamp(r) * tideScale(r);
 }
 
 /**
@@ -133,7 +195,7 @@ export function bossHpScale(r: WaveContext, homeWave: number): number {
   } else if (r.mode === 'endless' && r.wave <= config.waveCount) {
     scale *= ENDLESS_EARLY_BOSS_HP;
   }
-  return scale * endlessRamp(r);
+  return scale * endlessRamp(r) * tideScale(r);
 }
 
 /** Seconds between spawn groups. */
@@ -142,7 +204,7 @@ export function spawnInterval(r: WaveContext, bossWave: boolean): number {
   const t = Math.min(1, (wave - 1) / Math.max(1, config.waveCount - 1));
   let interval = lerp(config.spawnIntervalFirst, config.spawnIntervalLast, t);
   if (r.mode === 'endless' && r.wave > config.waveCount) {
-    interval *= Math.max(0.5, 1 - ENDLESS_SPAWN_SPEEDUP * (r.wave - config.waveCount));
+    interval *= Math.max(0.5, ENDLESS_SPAWN_STEP - ENDLESS_SPAWN_SPEEDUP * (r.wave - config.waveCount - 1));
   }
   return interval * (bossWave ? 1.8 : 1);
 }

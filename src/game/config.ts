@@ -71,6 +71,13 @@ export const config = {
   hitStop: true,
   /** Red screen-edge flash when hurt or low on HP. */
   screenFlash: true,
+  /**
+   * Joystick ring follows the finger once it leaves the rim. Off by default:
+   * playtesters found a ring that stays where the thumb landed more comfortable.
+   */
+  stickFollow: false,
+  /** Inner dead zone of the joystick, as a share of its radius. */
+  stickDeadZone: 0.12,
   /** Global multiplier on how far hits push monsters. */
   knockbackScale: 1.4,
 };

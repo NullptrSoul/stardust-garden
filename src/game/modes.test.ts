@@ -5,8 +5,10 @@ import { ALL_STAGES, chapterOfStage, nextStage, STAR_CLEAR, STAR_HEALTHY, STAR_N
 import { activeCombos, combosUnlockedBy, COMBOS } from './data/synergies';
 import { TALENTS, talentCost, talentMods, talentShards } from './data/talents';
 import { ITEM_SETS, ITEMS } from './data/items';
+import { BLESSINGS } from './data/blessings';
 import { WEAPONS } from './data/weapons';
 import { Run } from './run';
+import { createWebLeaderboard, weekStart } from '../platform/web-leaderboard';
 import { awardStars, buyTalent, emptySave, loadSave, resetProgress, stardustFor, submitEndless, totalStars } from './save';
 import {
   bossesForWave,
@@ -16,10 +18,13 @@ import {
   enemyDamage,
   enemyHpScale,
   eliteChance,
+  isBlessingWave,
   isEliteRush,
   isFinalWave,
   priceScale,
   spawnInterval,
+  TIDE_START,
+  tideScale,
   waveDuration,
   type WaveContext,
 } from './waves';
@@ -155,12 +160,96 @@ describe('Save', () => {
   });
 
   it('survives a corrupt or tampered save', () => {
-    expect(loadSave({ get: () => '{not json', set: () => {} })).toEqual(emptySave());
+    // The leaderboard id is random per device, so leave it out of the comparison.
+    expect({ ...loadSave({ get: () => '{not json', set: () => {} }), playerId: '' }).toEqual({ ...emptySave(), playerId: '' });
     const tampered = JSON.stringify({ stardust: -50, stars: { '1-1': 15, nope: 7 }, talents: { power: 999 } });
     const save = loadSave({ get: () => tampered, set: () => {} });
     expect(save.stardust).toBe(0);
     expect(save.stars).toEqual({ '1-1': 7 });
     expect(save.talents.power).toBe(5);
+  });
+});
+
+describe('Leaderboard', () => {
+  it('keeps the player id and nickname, also through a progress reset', () => {
+    const save = emptySave();
+    expect(save.playerId).toMatch(/^[0-9a-f]{32}$/);
+    save.name = '星屑';
+    const stored = JSON.stringify(save);
+    const again = loadSave({ get: () => stored, set: () => {} });
+    expect(again.playerId).toBe(save.playerId);
+    expect(again.name).toBe('星屑');
+    resetProgress(again);
+    expect(again.playerId).toBe(save.playerId);
+    expect(again.name).toBe('星屑');
+  });
+
+  it('ranks the best run per player, ignoring the player own runs', async () => {
+    const data = new Map<string, string>();
+    const board = createWebLeaderboard({ url: '', anonKey: '' }, { get: (k) => data.get(k) ?? null, set: (k, v) => data.set(k, v) });
+    expect(board.online).toBe(false);
+    const run = (playerId: string, wave: number, kills: number) =>
+      board.submit({ playerId, name: playerId, character: 'shenxi', wave, kills, playTime: wave * 30, version: 'test' });
+    await run('a', 20, 100);
+    await run('a', 30, 50);
+    await run('b', 25, 10);
+    await run('c', 30, 80);
+    const top = await board.top('all', 10);
+    expect(top.map((r) => [r.playerId, r.wave])).toEqual([
+      ['c', 30],
+      ['a', 30],
+      ['b', 25],
+    ]);
+    // a's own 30-wave run does not push a's new 26 down.
+    expect(await board.rank('all', 26, 0, 'a')).toBe(2);
+    expect(await board.rank('all', 31, 0, 'b')).toBe(1);
+  });
+
+  it('matches the minimum run time in docs/leaderboard.sql to the real wave lengths', () => {
+    // Same formula as min_play_time() in the SQL: the regular waves before the one reached.
+    const sql = (reached: number): number => {
+      let t = 0;
+      for (let k = 1; k < reached; k++) {
+        t += k <= 10 ? [20, 25, 25, 30, 0, 35, 40, 0, 45, 0][k - 1] : k % 5 === 0 ? 0 : k <= 30 ? 30 : 25;
+      }
+      return t;
+    };
+    const game = (reached: number): number => {
+      let t = 0;
+      for (let k = 1; k < reached; k++) t += waveDuration(endless(k));
+      return t;
+    };
+    for (const w of [2, 6, 11, 16, 31, 45, 80]) expect(sql(w)).toBe(game(w));
+  });
+
+  it('talks to our own server with the documented paths', async () => {
+    const calls: Array<{ url: string; body?: string }> = [];
+    const fake = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, body: init?.body as string | undefined });
+      const json = url.includes('/api/top')
+        ? [{ player_id: 'p', name: '星屑', character: 'shenxi', wave: 23, kills: 9, play_time: 700 }]
+        : url.includes('/api/rank')
+          ? { rank: 4 }
+          : { ok: true };
+      return new Response(JSON.stringify(json), { status: 200 });
+    }) as typeof fetch;
+    const board = createWebLeaderboard({ kind: 'simple', url: 'https://x.example/', anonKey: '' }, { get: () => null, set: () => {} }, fake);
+    expect(board.online).toBe(true);
+    await board.submit({ playerId: 'p', name: '星屑', character: 'shenxi', wave: 23, kills: 9, playTime: 700.4, version: 'v' });
+    expect(calls[0].url).toBe('https://x.example/api/scores');
+    expect(JSON.parse(calls[0].body!)).toMatchObject({ player_id: 'p', play_time: 700, wave: 23 });
+    expect((await board.top('week', 15))[0]).toMatchObject({ playerId: 'p', playTime: 700 });
+    expect(calls[1].url).toBe('https://x.example/api/top?board=week&limit=15');
+    expect(await board.rank('all', 23, 9, 'p')).toBe(4);
+    expect(calls[2].url).toBe('https://x.example/api/rank?board=all&wave=23&kills=9&player_id=p');
+  });
+
+  it('starts the week on Monday', () => {
+    const wed = new Date(2026, 10, 11, 15, 30);
+    const mon = new Date(weekStart(wed));
+    expect(mon.getDay()).toBe(1);
+    expect(mon.getDate()).toBe(9);
+    expect(new Date(weekStart(new Date(2026, 10, 15, 23))).getDate()).toBe(9);
   });
 });
 
@@ -269,6 +358,55 @@ describe('Balance rules', () => {
     expect(priceScale(endless(30))).toBeGreaterThan(5 * priceScale(endless(10)));
     // Stages keep the plain price growth.
     expect(priceScale(stage('1-5', 10))).toBeCloseTo(priceScale(endless(10)));
+  });
+
+  it('slows endless HP and damage growth late, so monsters stay killable', () => {
+    const hpGrowth = (w: number) => enemyHpScale(endless(w + 1)) / enemyHpScale(endless(w));
+    expect(hpGrowth(15)).toBeGreaterThan(hpGrowth(35));
+    expect(hpGrowth(35)).toBeLessThan(1.15);
+    const dmgGrowth = (w: number) => enemyDamage(endless(w + 1), 100) / enemyDamage(endless(w), 100);
+    expect(dmgGrowth(15)).toBeGreaterThan(dmgGrowth(35));
+    // Late endless waves are shorter, so a long run stays reasonable.
+    expect(waveDuration(endless(36))).toBeLessThan(waveDuration(endless(16)));
+  });
+
+  it('raises the abyss tide after 25 minutes of endless battle only', () => {
+    const at = (playTime: number, mode: 'endless' | 'stage' = 'endless'): WaveContext => ({
+      wave: 40,
+      mode,
+      stage: mode === 'stage' ? stageById('2-5') : null,
+      playTime,
+    });
+    expect(tideScale(at(TIDE_START - 1))).toBe(1);
+    expect(tideScale(at(TIDE_START + 90))).toBeCloseTo(2);
+    expect(tideScale(at(TIDE_START + 180))).toBeCloseTo(4);
+    expect(tideScale(at(TIDE_START + 180, 'stage'))).toBe(1);
+    expect(enemyHpScale(at(TIDE_START + 90))).toBeCloseTo(2 * enemyHpScale(at(0)));
+  });
+
+  it('offers blessings after endless boss waves from wave 10', () => {
+    expect(isBlessingWave(endless(5))).toBe(false);
+    expect(isBlessingWave(endless(10))).toBe(true);
+    expect(isBlessingWave(endless(11))).toBe(false);
+    expect(isBlessingWave(endless(15))).toBe(true);
+    expect(isBlessingWave(stage('1-5', 10))).toBe(false);
+  });
+
+  it('applies blessings: stats, price freeze, one-time ones leave the pool', () => {
+    const run = new Run(CHARACTERS[0], 1, 'endless');
+    const damage = run.stats.damage;
+    run.takeBlessing(BLESSINGS.find((b) => b.id === 'might')!);
+    expect(run.stats.damage).toBe(damage + 15);
+    run.wave = 20;
+    const before = run.price(100);
+    run.takeBlessing(BLESSINGS.find((b) => b.id === 'freeze')!);
+    run.wave = 30;
+    expect(run.price(100)).toBe(before);
+    for (let i = 0; i < 50; i++) expect(run.rollBlessings().map((b) => b.id)).not.toContain('freeze');
+    run.takeBlessing(BLESSINGS.find((b) => b.id === 'harvest')!);
+    const shards = run.shards;
+    for (let i = 0; i < 10; i++) run.collectShards(1);
+    expect(run.shards - shards).toBe(13);
   });
 
   it('gives endless bosses a time limit and stage bosses none', () => {

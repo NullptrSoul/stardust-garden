@@ -53,7 +53,7 @@ const PAD = 2;
 const args = process.argv.slice(2);
 const debugAt = args.indexOf('--debug');
 const debugDir = debugAt >= 0 ? args[debugAt + 1] : null;
-const ids = args.filter((a, i) => !a.startsWith('--') && i !== debugAt + 1);
+const ids = args.filter((a, i) => !a.startsWith('--') && (debugAt < 0 || i !== debugAt + 1));
 const targets = ids.length ? ids : (await readdir(SRC, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name);
 
 for (const id of targets) await bake(id);
@@ -477,13 +477,15 @@ function findJoints(shapes, overrides) {
   const center = (b) => [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
   const head = box('head');
   const body = box('body');
-  const legs = box('legs', 'big') ?? box('leg_front', 'big') ?? body;
+  // Two separate legs count as one box.
+  const pair = [box('leg_back', 'big'), box('leg_front', 'big')].filter(Boolean);
+  const legs = box('legs', 'big') ?? (pair.length ? pair.reduce((u, b) => [Math.min(u[0], b[0]), Math.min(u[1], b[1]), Math.max(u[2], b[2]), Math.max(u[3], b[3])]) : body);
   const j = {};
   j.foot = [(legs[0] + legs[2]) / 2, legs[3]];
   j.hip = [(body[0] + body[2]) / 2, body[3]];
   j.neck = [(head[0] + head[2]) / 2, head[3]];
   j.crown = [(head[0] + head[2]) / 2, head[1]];
-  j.legs = shapes.legs?.box ? topCenter(shapes.legs, box('legs', 'big')) : j.hip;
+  j.legs = shapes.legs?.box ? topCenter(shapes.legs, box('legs', 'big')) : pair.length ? [(legs[0] + legs[2]) / 2, legs[1]] : j.hip;
   j.skirt = shapes.skirt?.box ? topCenter(shapes.skirt, box('skirt')) : j.hip;
   j.armFront = shapes.arm_front?.box ? topCenter(shapes.arm_front, box('arm_front')) : center(body);
   j.armBack = shapes.arm_back?.box ? topCenter(shapes.arm_back, box('arm_back')) : center(body);

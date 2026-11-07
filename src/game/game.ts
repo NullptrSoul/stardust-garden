@@ -1,7 +1,8 @@
 import { clamp, smoothing } from '../engine/math';
 import { Rng } from '../engine/rng';
-import { ButtonSet, type Button } from '../engine/ui';
-import type { Platform, PlatformStorage, PointerInput } from '../platform/types';
+import { ButtonSet, type Button, type Rect } from '../engine/ui';
+import type { BoardKind, Platform, PlatformStorage, PointerInput, ScoreEntry } from '../platform/types';
+import { GAME_VERSION } from '../leaderboard.config';
 import { Sfx } from './audio';
 import { config } from './config';
 import { CHARACTERS } from './data/characters';
@@ -20,6 +21,7 @@ import {
   awardStars,
   buyTalent,
   loadSave,
+  NAME_MAX,
   resetProgress,
   SETTING_KEYS,
   stardustFor,
@@ -28,8 +30,14 @@ import {
   type SaveData,
 } from './save';
 import * as S from './screens';
-import { bossesForWave, isEliteRush, isFinalWave, type GameMode } from './waves';
+import { bossesForWave, isBlessingWave, isEliteRush, isFinalWave, TIDE_START, type GameMode } from './waves';
 import { SKILL_MAX, World, type Enemy } from './world';
+
+/** Seconds a "tap again to confirm" button waits for the second tap. */
+const CONFIRM_TIME = 3;
+
+/** Rows shown on the leaderboard screen. */
+export const BOARD_SIZE = 15;
 
 /** First-battle tips, shown one after another at the top of the screen. */
 export const TIPS = [
@@ -52,7 +60,21 @@ const CUTIN_TIME = 0.8;
  * wave. levelup: pick stat cards. shop: spend shards. pause: stats and
  * inventory. over: died. victory: cleared the stage.
  */
-export type Scene = 'title' | 'stages' | 'talents' | 'settings' | 'select' | 'battle' | 'chest' | 'levelup' | 'shop' | 'pause' | 'over' | 'victory';
+export type Scene =
+  | 'title'
+  | 'stages'
+  | 'talents'
+  | 'settings'
+  | 'leaderboard'
+  | 'select'
+  | 'battle'
+  | 'blessing'
+  | 'chest'
+  | 'levelup'
+  | 'shop'
+  | 'pause'
+  | 'over'
+  | 'victory';
 
 const MOVE_KEYS: Record<string, [number, number]> = {
   w: [0, -1],
@@ -118,8 +140,21 @@ export class Game {
   private pointerId: number | null = null;
   private skillWasReady = false;
   private readonly storage: PlatformStorage;
+  private readonly platform: Platform;
+  /** A button waiting for its confirming second tap. */
+  private armed: { button: Button; label: string; until: number } | null = null;
+
+  /** Leaderboard screen: which board, and what has loaded. */
+  board: BoardKind = 'all';
+  boardRows: ScoreEntry[] = [];
+  boardState: 'loading' | 'ready' | 'error' = 'loading';
+  /** Bumped on every load, so a slow old answer can't overwrite a newer one. */
+  private boardToken = 0;
+  /** The finished endless run's trip to the leaderboard, shown on the end screen. */
+  endRank: { state: 'idle' | 'noname' | 'sending' | 'done' | 'error'; all?: number; week?: number } = { state: 'idle' };
 
   constructor(platform: Platform) {
+    this.platform = platform;
     this.sfx = new Sfx(platform);
     this.music = new Music(platform);
     this.storage = platform.storage;
@@ -140,6 +175,11 @@ export class Game {
       return;
     }
     this.time += dt;
+    // An unconfirmed "tap again" button goes back to normal after a while.
+    if (this.armed && this.time > this.armed.until) {
+      this.armed.button.label = this.armed.label;
+      this.armed = null;
+    }
     this.fx.update(dt);
     if (!battle || !this.run) return;
     if (this.bossIntro) {
@@ -161,8 +201,15 @@ export class Game {
     }
     this.updateTutorial(dt);
     const move = this.moveInput();
+    const before = this.run.playTime;
     const event = this.world.update(dt, move.x, move.y);
     this.updateCamera(dt, false);
+    if (this.run.mode === 'endless') {
+      // Abyss tide: a warning a minute ahead, then the tide itself.
+      const now = this.run.playTime;
+      if (before < TIDE_START - 60 && now >= TIDE_START - 60) this.showToast('深渊涨潮还有 60 秒');
+      if (before < TIDE_START && now >= TIDE_START) this.showToast('深渊涨潮！怪物每 90 秒强一倍');
+    }
     if (this.world.introBoss) {
       this.bossIntro = { t: BOSS_INTRO_TIME, max: BOSS_INTRO_TIME, boss: this.world.introBoss };
       this.world.introBoss = null;
@@ -182,7 +229,8 @@ export class Game {
   /** Calm music in menus, driving music in a run, the boss theme while a boss is up. */
   private updateMusic(): void {
     this.music.setEnabled(config.music);
-    const menu = this.scene === 'title' || this.scene === 'stages' || this.scene === 'talents' || this.scene === 'select';
+    // Menu music whenever no run is going (title, maps, settings, leaderboard...).
+    const menu = this.run === null || this.scene === 'select';
     const boss = this.world.boss !== null && this.world.boss.alive && this.scene === 'battle';
     this.music.setMood(menu || this.scene === 'over' || this.scene === 'victory' ? 'menu' : boss ? 'boss' : 'battle');
     this.music.update();
@@ -234,12 +282,13 @@ export class Game {
       const s = this.stick;
       s.x = x;
       s.y = y;
-      // The base follows the finger once it goes past the rim.
+      // By default the ring stays where the thumb landed; with the
+      // stickFollow option it is dragged along once the finger leaves the rim.
       const dx = x - s.ox;
       const dy = y - s.oy;
       const d = Math.hypot(dx, dy);
       const max = config.joystickRadius;
-      if (d > max) {
+      if (config.stickFollow && d > max) {
         s.ox = x - (dx / d) * max;
         s.oy = y - (dy / d) * max;
       }
@@ -278,6 +327,12 @@ export class Game {
     if (this.stick.active) {
       x = (this.stick.x - this.stick.ox) / config.joystickRadius;
       y = (this.stick.y - this.stick.oy) / config.joystickRadius;
+      // A small dead zone, so resting the thumb does not creep.
+      const len = Math.hypot(x, y);
+      const dead = config.stickDeadZone;
+      const k = len <= dead ? 0 : Math.min(1, (len - dead) / (1 - dead)) / len;
+      x *= k;
+      y *= k;
     }
     for (const k of this.keys) {
       const v = MOVE_KEYS[k];
@@ -325,6 +380,10 @@ export class Game {
       this.sfx.click();
       this.mode = 'endless';
       this.enterSelect();
+    });
+    this.ui.add(S.TITLE_RANK, '排行', 'secondary', () => {
+      this.sfx.click();
+      this.enterLeaderboard();
     });
     this.ui.add(S.TITLE_TALENTS, '天赋', 'secondary', () => {
       this.sfx.click();
@@ -500,16 +559,35 @@ export class Game {
       this.enterEnd('victory');
       return;
     }
+    // Endless: a boss beaten (not one that left) grants an abyss blessing.
+    if (isBlessingWave(run) && !this.world.bossLeftThisWave) run.blessingChoices = run.rollBlessings();
     this.afterWave();
   }
 
-  /** Chests first, then level-ups, then the shop. */
+  /** A blessing first, then chests, then level-ups, then the shop. */
   private afterWave(): void {
     const run = this.run;
     if (!run) return;
-    if (run.chests > 0) this.enterChest();
+    if (run.blessingChoices.length > 0) this.enterBlessing();
+    else if (run.chests > 0) this.enterChest();
     else if (run.pendingLevels > 0) this.enterLevelUp();
     else this.enterShop();
+  }
+
+  private enterBlessing(): void {
+    const run = this.run;
+    if (!run) return;
+    this.scene = 'blessing';
+    this.ui.clear();
+    this.sfx.levelUp();
+    run.blessingChoices.forEach((b, i) => {
+      this.ui.add(S.upgradeCard(i), '', 'card', () => {
+        run.takeBlessing(b);
+        this.sfx.buy();
+        this.showToast(`获得深渊祝福「${b.name}」`);
+        this.afterWave();
+      });
+    });
   }
 
   private enterChest(): void {
@@ -682,8 +760,27 @@ export class Game {
       this.sfx.click();
       this.enterSettings('pause');
     });
-    this.ui.add(S.PAUSE_QUIT, '放弃本局', 'secondary', () => (this.mode === 'stage' ? this.enterStages() : this.enterTitle()));
+    this.confirmButton(S.PAUSE_QUIT, '放弃本局', () => (this.mode === 'stage' ? this.enterStages() : this.enterTitle()));
     this.sfx.click();
+  }
+
+/**
+   * A button that only acts on a second tap within a few seconds, for the
+   * ones that end a run: players hit them by accident.
+   */
+  private confirmButton(rect: Rect, label: string, action: () => void): Button {
+    const button = this.ui.add(rect, label, 'secondary', () => {
+      if (this.armed?.button === button && this.time <= this.armed.until) {
+        this.armed = null;
+        action();
+        return;
+      }
+      if (this.armed) this.armed.button.label = this.armed.label;
+      this.armed = { button, label, until: this.time + CONFIRM_TIME };
+      button.label = '再点一次确认';
+      this.sfx.click();
+    });
+    return button;
   }
 
   private leavePause(): void {
@@ -702,6 +799,7 @@ export class Game {
     if (run) this.recordResult(run, scene === 'victory');
     const backLabel = this.mode === 'stage' ? '回地图' : '回主界面';
     const back = (): void => (this.mode === 'stage' ? this.enterStages() : this.enterTitle());
+    this.endRank = { state: 'idle' };
     if (scene === 'over' && run && !run.revived) {
       this.ui.add(S.END_PRIMARY, '看广告复活', 'ad', () => {
         // Ad placeholder: the web build grants the reward right away.
@@ -709,9 +807,15 @@ export class Game {
         this.world.revive();
         this.enterBattle(false);
       });
-      this.ui.add(S.END_SECONDARY, backLabel, 'secondary', back);
+      // Leaving without the revive ends the run: that is when it goes on the board.
+      // It also throws the revive away, so it asks twice.
+      this.confirmButton(S.END_SECONDARY, backLabel, () => {
+        this.submitScore(run);
+        back();
+      });
       return;
     }
+    if (run) this.submitScore(run);
     const next = scene === 'victory' && run?.stage ? nextStage(run.stage.id) : null;
     if (next) {
       this.ui.add(S.END_PRIMARY, `下一关 ${next.id} ▶`, 'primary', () => {
@@ -722,6 +826,102 @@ export class Game {
       this.ui.add(S.END_PRIMARY, '再来一局', 'primary', () => this.enterSelect());
     }
     this.ui.add(S.END_SECONDARY, backLabel, 'secondary', back);
+  }
+
+  /**
+   * Sends a finished endless run to the leaderboard once. Without a
+   * nickname yet, the end screen offers to pick one first.
+   */
+  private submitScore(run: Run): void {
+    if (run.mode !== 'endless' || run.submitted || run.wave < 2) return;
+    if (!this.save.name) {
+      this.endRank = { state: 'noname' };
+      this.ui.add(S.END_RANK, '', 'card', () => {
+        void this.askName().then((ok) => {
+          if (ok) this.submitScore(run);
+        });
+      });
+      return;
+    }
+    run.submitted = true;
+    this.endRank = { state: 'sending' };
+    const entry = {
+      playerId: this.save.playerId,
+      name: this.save.name,
+      character: run.character.id,
+      wave: run.wave,
+      kills: run.kills,
+      playTime: run.playTime,
+    };
+    const board = this.platform.leaderboard;
+    board
+      .submit({ ...entry, version: GAME_VERSION })
+      .then(() =>
+        Promise.all([
+          board.rank('all', entry.wave, entry.kills, entry.playerId),
+          board.rank('week', entry.wave, entry.kills, entry.playerId),
+        ]),
+      )
+      .then(([all, week]) => {
+        this.endRank = { state: 'done', all, week };
+      })
+      .catch(() => {
+        // Let the player try again from the end screen.
+        run.submitted = false;
+        this.endRank = { state: 'error' };
+        this.ui.add(S.END_RANK, '', 'card', () => this.submitScore(run));
+      });
+  }
+
+  /** Asks for a nickname; true once one is saved. */
+  private async askName(): Promise<boolean> {
+    const name = await this.platform.promptText({ title: '排行榜上显示的名字', value: this.save.name, maxLength: NAME_MAX });
+    if (!name) return false;
+    this.save.name = name;
+    writeSave(this.storage, this.save);
+    return true;
+  }
+
+  private enterLeaderboard(): void {
+    this.scene = 'leaderboard';
+    this.run = null;
+    this.ui.clear();
+    this.ui.add(S.SELECT_BACK, '◀ 返回', 'secondary', () => {
+      this.sfx.click();
+      this.enterTitle();
+    });
+    this.ui.add(S.BOARD_TAB_ALL, '总榜', 'card', () => this.loadBoard('all'));
+    this.ui.add(S.BOARD_TAB_WEEK, '本周', 'card', () => this.loadBoard('week'));
+    this.ui.add(S.BOARD_NAME, '', 'card', () => {
+      this.sfx.click();
+      void this.askName().then((ok) => {
+        if (ok) this.showToast(`名字改成「${this.save.name}」，下一局起生效`);
+      });
+    });
+    this.loadBoard(this.board);
+  }
+
+  private loadBoard(board: BoardKind): void {
+    this.sfx.click();
+    this.board = board;
+    this.boardState = 'loading';
+    const token = ++this.boardToken;
+    this.platform.leaderboard.top(board, BOARD_SIZE).then(
+      (rows) => {
+        if (token !== this.boardToken) return;
+        this.boardRows = rows;
+        this.boardState = 'ready';
+      },
+      () => {
+        if (token !== this.boardToken) return;
+        this.boardState = 'error';
+      },
+    );
+  }
+
+  /** True when the leaderboard is the shared online one. */
+  get boardOnline(): boolean {
+    return this.platform.leaderboard.online;
   }
 
   /** Stars, stardust and the endless record for a run that just ended. */

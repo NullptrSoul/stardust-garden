@@ -8,12 +8,14 @@ export const SELECT_BACK: Rect = { x: 18, y: 66, w: 120, h: 60 };
 
 export const TITLE_STORY: Rect = { x: 160, y: 852, w: 400, h: 100 };
 export const TITLE_ENDLESS: Rect = { x: 160, y: 1000, w: 400, h: 96 };
+/** The trophy next to the endless button opens the leaderboard. */
+export const TITLE_RANK: Rect = { x: 580, y: 1000, w: 96, h: 96 };
 export const TITLE_TALENTS: Rect = { x: 18, y: 30, w: 130, h: 60 };
 export const TITLE_SETTINGS: Rect = { x: 572, y: 30, w: 130, h: 60 };
 
 /** Settings: one toggle row per option, then the progress reset. */
 export const settingsRow = (i: number): Rect => ({ x: 90, y: 250 + i * 112, w: 540, h: 92 });
-export const SETTINGS_RESET: Rect = { x: 140, y: 880, w: 440, h: 84 };
+export const SETTINGS_RESET: Rect = { x: 140, y: 960, w: 440, h: 84 };
 export const PAUSE_SETTINGS: Rect = { x: 540, y: 166, w: 130, h: 56 };
 
 /** Centers of the stage nodes on the chapter map, winding up from the bottom. */
@@ -61,3 +63,11 @@ export const PAUSE_QUIT: Rect = { x: 200, y: 1158, w: 320, h: 72 };
 
 export const END_PRIMARY: Rect = { x: 160, y: 790, w: 400, h: 100 };
 export const END_SECONDARY: Rect = { x: 160, y: 910, w: 400, h: 96 };
+/** The leaderboard line on the end screen; tappable to pick a name or retry. */
+export const END_RANK: Rect = { x: 120, y: 714, w: 480, h: 42 };
+
+/** Leaderboard screen. */
+export const BOARD_TAB_ALL: Rect = { x: 150, y: 150, w: 200, h: 64 };
+export const BOARD_TAB_WEEK: Rect = { x: 370, y: 150, w: 200, h: 64 };
+export const boardRow = (i: number): Rect => ({ x: 40, y: 254 + i * 58, w: 640, h: 52 });
+export const BOARD_NAME: Rect = { x: 160, y: 1160, w: 400, h: 76 };

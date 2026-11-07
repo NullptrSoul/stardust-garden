@@ -17,7 +17,7 @@
     "split": [
       { "layer": "tail", "box": [0, 793, 1023, 1279], "bone": "upper" },
       { "layer": "hair_back", "box": [20, 525, 60, 560], "bone": "tail" },
-      { "layer": "body", "poly": [[40, 520], [232, 520], [232, 615], [236, 665], [248, 692], [275, 702], [302, 704], [302, 728], [268, 758], [242, 766], [205, 762], [196, 792], [40, 792]], "bone": "tail" },
+      { "layer": "body", "poly": [[ 40, 520], [232, 520], [232, 615], [236, 665], [248, 692], [275, 702], [302, 704], [302, 728], [268, 758], [242, 766], [205, 762], [196, 792], [40, 792] ], "bone": "tail" },
       { "layer": "skirt", "box": [60, 760, 330, 1090], "bone": "upper" },
       { "layer": "skirt", "box": [300, 1040, 490, 1090], "bone": "upper" },
       { "layer": "legs", "box": [150, 1085, 480, 1150], "bone": "upper" },
@@ -29,5 +29,75 @@
     "follow": {
       "hair_back": "upper"
     }
+  },
+  "ziling": {
+    "scale": 0.4,
+    "order": ["tail", "hair_back", "arm_back", "leg_back", "leg_front", "body", "skirt", "arm_front", "head", "ears", "eyes", "hair_side_l", "hair_side_r", "hair_front", "accessory"],
+    "joints": {
+      "armFront": [510, 670],
+      "armBack": [770, 690],
+      "skirt": [665, 825],
+      "hip": [670, 835],
+      "tail": [440, 960],
+      "neck": [680, 610]
+    },
+    "eyesClosed": "generate",
+    "avatar": [430, 230, 480],
+    "avatarBg": "#E6DDF8"
+  },
+  "jinti": {
+    "scale": 0.4,
+    "order": ["hair_back", "arm_back", "leg_back", "leg_front", "body", "skirt", "arm_front", "head", "eyes", "hair_side_l", "hair_side_r", "hair_front", "accessory"],
+    "joints": {
+      "armFront": [505, 655],
+      "armBack": [880, 670],
+      "hip": [680, 770],
+      "skirt": [680, 770]
+    },
+    "eyesClosed": "generate",
+    "motion": { "legs": 0.4 },
+    "avatar": [460, 200, 480],
+    "avatarBg": "#F6E9D2"
+  },
+  "juyan": {
+    "scale": 0.4,
+    "order": ["hair_back", "arm_back", "leg_back", "leg_front", "body", "skirt", "arm_front", "head", "eyes", "hair_side_l", "hair_side_r", "hair_front", "accessory"],
+    "joints": {
+      "armFront": [515, 620],
+      "armBack": [810, 650],
+      "hip": [680, 790],
+      "skirt": [680, 790]
+    },
+    "eyesClosed": "generate",
+    "avatar": [430, 200, 480],
+    "avatarBg": "#FBE3D0"
+  },
+  "qinglan": {
+    "scale": 0.4,
+    "order": ["hair_back", "arm_back", "leg_back", "leg_front", "body", "skirt", "arm_front", "head", "eyes", "hair_side_l", "hair_side_r", "hair_front", "accessory"],
+    "joints": {
+      "armFront": [485, 625],
+      "armBack": [735, 625],
+      "hip": [630, 775],
+      "skirt": [630, 770]
+    },
+    "eyesClosed": "generate",
+    "motion": { "arms": 0.5 },
+    "avatar": [355, 200, 480],
+    "avatarBg": "#DCE8F8"
+  },
+  "bailan": {
+    "scale": 0.4,
+    "order": ["hair_back", "arm_back", "leg_back", "leg_front", "body", "skirt", "arm_front", "head", "ears", "eyes", "hair_side_l", "hair_side_r", "hair_front", "accessory"],
+    "joints": {
+      "armFront": [505, 565],
+      "armBack": [690, 575],
+      "hip": [620, 720],
+      "skirt": [620, 700]
+    },
+    "eyesClosed": "generate",
+    "motion": { "skirt": 0, "legs": 0, "lean": 0 },
+    "avatar": [400, 140, 480],
+    "avatarBg": "#ECE6F8"
   }
 }

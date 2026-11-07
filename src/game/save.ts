@@ -25,9 +25,10 @@ export interface Settings {
   shake: boolean;
   hitStop: boolean;
   screenFlash: boolean;
+  stickFollow: boolean;
 }
 
-export const SETTING_KEYS: Array<keyof Settings> = ['sound', 'music', 'shake', 'hitStop', 'screenFlash'];
+export const SETTING_KEYS: Array<keyof Settings> = ['sound', 'music', 'shake', 'hitStop', 'screenFlash', 'stickFollow'];
 
 export interface SaveData {
   endless: EndlessRecord;
@@ -39,6 +40,19 @@ export interface SaveData {
   settings: Settings;
   /** One-time tips already shown (the tutorial). */
   tips: string[];
+  /** Random id for the leaderboard, made once per device. */
+  playerId: string;
+  /** Leaderboard nickname; empty until the player picks one. */
+  name: string;
+}
+
+/** Longest leaderboard nickname, in characters. */
+export const NAME_MAX = 10;
+
+function newPlayerId(): string {
+  let id = '';
+  for (let i = 0; i < 32; i++) id += Math.floor(Math.random() * 16).toString(16);
+  return id;
 }
 
 const KEY = 'stardust-garden.save.v1';
@@ -49,8 +63,10 @@ export function emptySave(): SaveData {
     stars: {},
     stardust: 0,
     talents: {},
-    settings: { sound: true, music: true, shake: true, hitStop: true, screenFlash: true },
+    settings: { sound: true, music: true, shake: true, hitStop: true, screenFlash: true, stickFollow: false },
     tips: [],
+    playerId: newPlayerId(),
+    name: '',
   };
 }
 
@@ -81,6 +97,8 @@ export function loadSave(storage: PlatformStorage): SaveData {
       if (typeof v === 'boolean') save.settings[key] = v;
     }
     if (Array.isArray(data.tips)) save.tips = data.tips.filter((x): x is string => typeof x === 'string');
+    if (typeof data.playerId === 'string' && /^[0-9a-f]{32}$/.test(data.playerId)) save.playerId = data.playerId;
+    if (typeof data.name === 'string') save.name = data.name.slice(0, NAME_MAX);
   } catch {
     // Corrupt save: start fresh rather than crash.
   }
@@ -94,8 +112,9 @@ export function applySettings(s: Settings): void {
 
 /** Wipes progress (stars, stardust, talents, records, tips) but keeps the options. */
 export function resetProgress(save: SaveData): void {
-  const settings = save.settings;
-  Object.assign(save, emptySave(), { settings });
+  // Options and the leaderboard identity stay.
+  const { settings, playerId, name } = save;
+  Object.assign(save, emptySave(), { settings, playerId, name });
 }
 
 export function writeSave(storage: PlatformStorage, save: SaveData): void {

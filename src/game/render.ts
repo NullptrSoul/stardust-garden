@@ -17,7 +17,9 @@ import {
   CLASSES,
   combosUnlockedBy,
   countTags,
+  CLASS_WEAPON_BONUS,
   describeClass,
+  fitsClass,
   nextThreshold,
   SET_TIERS,
   TAG_INFO,
@@ -31,9 +33,9 @@ import * as L from './layout';
 import { darken, lighten, palette, rgba } from './palette';
 import { itemById, type Run, type ShopOffer } from './run';
 import * as S from './screens';
-import { describeMods, formatMod, STAT_INFO, STAT_ORDER, type StatKey } from './stats';
+import { describeMods, formatMod, MAX_DODGE, STAT_INFO, STAT_ORDER, type StatKey } from './stats';
 import { isWindingUp } from './boss';
-import { bossTimeLimit, MODE_NAMES } from './waves';
+import { bossTimeLimit, MODE_NAMES, TIDE_START, tideScale } from './waves';
 import { TIPS } from './game';
 import { SETTING_KEYS } from './save';
 
@@ -43,6 +45,7 @@ const SETTING_INFO: Record<string, { name: string; desc: string }> = {
   shake: { name: '震屏', desc: '受击、爆炸时画面抖动' },
   hitStop: { name: '顿帧', desc: '击杀和暴击时画面短暂停顿' },
   screenFlash: { name: '受伤红边', desc: '受伤和低血量时屏幕四周泛红' },
+  stickFollow: { name: '摇杆跟随手指', desc: '关：圆圈停在按下处；开：圆圈跟着手指走' },
 };
 import {
   ALL_STAGES,
@@ -178,6 +181,7 @@ export class Renderer {
       else if (game.scene === 'stages') this.drawStages(game);
       else if (game.scene === 'talents') this.drawTalents(game);
       else if (game.scene === 'settings') this.drawSettings(game);
+      else if (game.scene === 'leaderboard') this.drawLeaderboard(game);
       else this.drawSelect(game);
     } else {
       this.drawSky(game);
@@ -195,6 +199,9 @@ export class Renderer {
       if (game.cutin && game.scene === 'battle') this.drawCutin(game, run);
       if (game.bossIntro && game.scene === 'battle') this.drawBossIntro(game);
       switch (game.scene) {
+        case 'blessing':
+          this.drawBlessing(game, run);
+          break;
         case 'chest':
           this.drawChestScreen(game, run);
           break;
@@ -517,6 +524,13 @@ export class Renderer {
       circle(ctx, w.x, w.y + bob, 20);
       ctx.fillStyle = rgba(TIER_COLORS[w.tier], 0.55);
       ctx.fill();
+      // A ring in the character's color marks weapons that fit her class.
+      if (fitsClass(run.character.cls, w.def.id)) {
+        circle(ctx, w.x, w.y + bob, 22 + Math.sin(t * 4) * 1.5);
+        ctx.strokeStyle = rgba(run.character.color, 0.9);
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
       drawWeaponIcon(ctx, w.def.id, w.x, w.y + bob, size);
     }
 
@@ -932,6 +946,39 @@ export class Renderer {
     ctx.restore();
   }
 
+  /**
+   * Endless: total battle time under the wave box, then the abyss tide: a
+   * countdown in its last minute, and how much stronger monsters are once it
+   * rises.
+   */
+  private drawEndlessClock(game: Game, run: Run): void {
+    const ctx = this.ctx;
+    const t = Math.floor(run.playTime);
+    const clock = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+    const toTide = TIDE_START - run.playTime;
+    let text = `⏱ ${clock}`;
+    let color = palette.ink;
+    let fill = 'rgba(255, 255, 255, 0.85)';
+    if (toTide <= 0) {
+      text = `深渊涨潮 ×${tideScale(run).toFixed(1)}`;
+      color = '#FFFFFF';
+      fill = `rgba(160, 30, 70, ${0.8 + 0.15 * Math.sin(game.time * 6)})`;
+    } else if (toTide <= 60) {
+      text = `涨潮 ${Math.ceil(toTide)} 秒`;
+      color = '#FFFFFF';
+      fill = 'rgba(120, 60, 170, 0.9)';
+    }
+    ctx.font = `800 19px ${FONT}`;
+    const w = Math.max(110, ctx.measureText(text).width + 28);
+    roundRectPath(ctx, 550 - w / 2, 142, w, 32, 16);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 550, 159);
+  }
+
   /** Skill button: the avatar inside an energy ring; glows when full. */
   private drawSkillButton(game: Game, run: Run, world: World): void {
     const ctx = this.ctx;
@@ -1149,6 +1196,7 @@ export class Renderer {
     } else {
       outlinedText(ctx, 'BOSS', 550, 96, 38, '#FFD0DE', 'center', '#C2477F');
     }
+    if (run.mode === 'endless') this.drawEndlessClock(game, run);
 
     // Pause button
     const pb = S.PAUSE_BUTTON;
@@ -1365,6 +1413,91 @@ export class Renderer {
     ctx.fillStyle = 'rgba(61, 51, 102, 0.4)';
     ctx.font = `600 15px ${FONT}`;
     ctx.fillText('试玩版 · 进度只保存在这台设备上', 360, 1258);
+  }
+
+  /** Endless leaderboard: all-time or this week, best run per player. */
+  private drawLeaderboard(game: Game): void {
+    const ctx = this.ctx;
+    outlinedText(ctx, '无尽排行榜', 380, 96, 44, '#FFFFFF', 'center', palette.ink);
+    // Tabs
+    for (const [rect, kind, label] of [
+      [S.BOARD_TAB_ALL, 'all', '总榜'],
+      [S.BOARD_TAB_WEEK, 'week', '本周'],
+    ] as const) {
+      const on = game.board === kind;
+      roundRectPath(ctx, rect.x, rect.y, rect.w, rect.h, 32);
+      paint(ctx, on ? '#8A5CE0' : 'rgba(255, 255, 255, 0.9)', 3, on ? '#5A2E9E' : palette.frameLine);
+      ctx.fillStyle = on ? '#FFFFFF' : palette.ink;
+      ctx.font = `800 26px ${FONT}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2);
+    }
+    ctx.fillStyle = palette.textDim;
+    ctx.font = `700 16px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.fillText(
+      game.boardOnline ? '每人只算最好的一局 · 同波数比击败数' : '线上排行榜还没开通，先显示这台设备上的成绩',
+      360,
+      S.BOARD_TAB_ALL.y + S.BOARD_TAB_ALL.h + 16,
+    );
+
+    if (game.boardState !== 'ready' || game.boardRows.length === 0) {
+      const text =
+        game.boardState === 'loading' ? '加载中……' : game.boardState === 'error' ? '连不上排行榜，等一下再试' : '还没有人上榜，去打一局无尽吧';
+      ctx.fillStyle = palette.ink;
+      ctx.font = `700 24px ${FONT}`;
+      ctx.fillText(text, 360, 600);
+    }
+    if (game.boardState === 'ready') {
+      game.boardRows.forEach((row, i) => {
+        const r = S.boardRow(i);
+        const mine = row.playerId === game.save.playerId;
+        roundRectPath(ctx, r.x, r.y, r.w, r.h, 16);
+        paint(ctx, mine ? 'rgba(255, 236, 190, 0.97)' : 'rgba(255, 255, 255, 0.92)', 2, mine ? palette.gold : palette.frameLine);
+        const cy = r.y + r.h / 2;
+        // Place: gold, silver, bronze for the first three.
+        const medal = ['#F2C65E', '#C9CED8', '#D99A6C'][i];
+        if (medal) {
+          circle(ctx, r.x + 34, cy, 19);
+          paint(ctx, medal, 2, darken(medal, 0.35));
+        }
+        ctx.fillStyle = medal ? '#FFFFFF' : palette.textDim;
+        ctx.font = `800 22px ${FONT}`;
+        ctx.textAlign = 'center';
+        ctx.fillText(String(i + 1), r.x + 34, cy + 1);
+        const c = CHARACTERS.find((x) => x.id === row.character);
+        const img = c ? this.images.get(avatarImagePath(c.id)) : undefined;
+        ctx.save();
+        circle(ctx, r.x + 86, cy, 21);
+        ctx.clip();
+        if (img) ctx.drawImage(img, r.x + 65, cy - 21, 42, 42);
+        else {
+          ctx.fillStyle = c ? lighten(c.color, 0.5) : palette.frameLine;
+          ctx.fillRect(r.x + 65, cy - 21, 42, 42);
+        }
+        ctx.restore();
+        ctx.textAlign = 'left';
+        ctx.fillStyle = palette.ink;
+        ctx.font = `800 22px ${FONT}`;
+        ctx.fillText(row.name, r.x + 120, cy - 9);
+        ctx.fillStyle = palette.textDim;
+        ctx.font = `600 15px ${FONT}`;
+        const m = Math.floor(row.playTime / 60);
+        ctx.fillText(`${c?.name ?? '?'} · 击败 ${row.kills} · ${m} 分钟`, r.x + 120, cy + 14);
+        ctx.textAlign = 'right';
+        outlinedText(ctx, `第 ${row.wave} 波`, r.x + r.w - 18, cy, 26, '#FFFFFF', 'right', '#5A2E9E');
+      });
+    }
+
+    // Nickname
+    const nb = S.BOARD_NAME;
+    roundRectPath(ctx, nb.x, nb.y, nb.w, nb.h, 24);
+    paint(ctx, 'rgba(255, 255, 255, 0.95)', 3, palette.frameLine);
+    ctx.fillStyle = palette.ink;
+    ctx.font = `800 22px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.fillText(game.save.name ? `我的名字：${game.save.name}  ✎` : '✎ 起个名字', nb.x + nb.w / 2, nb.y + nb.h / 2);
   }
 
   /** Chapter map: stage nodes on a winding path, with stars earned. */
@@ -1706,17 +1839,76 @@ export class Renderer {
       ctx.fillStyle = '#FFFFFF';
       ctx.fill();
     }
-    drawItemIcon(ctx, item.icon, 360, 560, 150, palette.gold);
+    drawItemIcon(ctx, item.icon, 360, 545, 130, palette.gold);
     ctx.fillStyle = palette.ink;
     ctx.font = `800 36px ${FONT}`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(item.name, 360, 690);
-    ctx.font = `700 24px ${FONT}`;
-    describeMods(item.mods).forEach((line, i) => {
-      ctx.fillStyle = line.startsWith('-') ? '#D9466F' : '#2E9E6A';
-      ctx.fillText(line, 360, 744 + i * 34);
+    ctx.fillText(item.name, 360, 648);
+    // Same facts as the shop card: what it does, its stats, its set.
+    const font = `700 22px ${FONT}`;
+    const lines: Array<{ text: string; color: string }> = [];
+    if (item.note) lines.push(...wrap(ctx, item.note, 470, font).map((text) => ({ text, color: '#B07A12' })));
+    for (const text of describeMods(item.mods)) lines.push({ text, color: text.startsWith('-') ? '#D9466F' : '#2E9E6A' });
+    const owned = run.items.get(item.id) ?? 0;
+    const set = setsForItem(run.items, item.id)[0];
+    if (set) {
+      const have = set.have + (owned > 0 ? 0 : 1);
+      lines.push({ text: `套装「${set.set.name}」收下后 ${have}/${set.set.items.length}`, color: '#6F5FC0' });
+      lines.push({ text: `集齐：${describeMods(set.set.mods).join('，')}`, color: '#6F5FC0' });
+    }
+    if (owned > 0) lines.push({ text: `已经有 ${owned} 个${item.max ? `（最多 ${item.max} 个）` : ''}`, color: palette.textDim });
+    if (lines.length === 0) lines.push({ text: '没有额外效果', color: palette.textDim });
+    ctx.font = font;
+    const step = lines.length > 5 ? 28 : 32;
+    lines.forEach((line, i) => {
+      ctx.fillStyle = line.color;
+      ctx.fillText(line.text, 360, 700 + i * step);
     });
+  }
+
+  /** Endless: pick one abyss blessing of three after beating a boss. */
+  private drawBlessing(game: Game, run: Run): void {
+    const ctx = this.ctx;
+    this.dim();
+    outlinedText(ctx, '深渊祝福', 360, 214, 60, '#E8D8FF', 'center', '#5A2E9E');
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = `700 24px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.fillText('击败 Boss 的奖励 · 选一项，整局有效', 360, 276);
+    const color = '#8A5CE0';
+    run.blessingChoices.forEach((b, i) => {
+      const r = S.upgradeCard(i);
+      roundRectPath(ctx, r.x, r.y, r.w, r.h, 24);
+      paint(ctx, 'rgba(255, 255, 255, 0.96)', 3, color);
+      ctx.save();
+      roundRectPath(ctx, r.x, r.y, r.w, r.h, 24);
+      ctx.clip();
+      const g = ctx.createLinearGradient(r.x, 0, r.x + 140, 0);
+      g.addColorStop(0, 'rgba(138, 92, 224, 0.25)');
+      g.addColorStop(1, 'rgba(138, 92, 224, 0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(r.x, r.y, 140, r.h);
+      ctx.restore();
+      ctx.font = `64px ${FONT}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(b.icon, r.x + 72, r.y + r.h / 2);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = palette.ink;
+      ctx.font = `800 36px ${FONT}`;
+      ctx.fillText(b.name, r.x + 140, r.y + 52);
+      ctx.fillStyle = '#5A2E9E';
+      ctx.font = `700 23px ${FONT}`;
+      ctx.fillText(b.desc, r.x + 140, r.y + 100);
+      const have = run.blessingCount(b.id);
+      if (have > 0) {
+        ctx.fillStyle = palette.textDim;
+        ctx.font = `700 18px ${FONT}`;
+        ctx.fillText(`已经有 ${have} 层`, r.x + 140, r.y + 132);
+      }
+    });
+    void game;
   }
 
   private drawLevelUp(game: Game, run: Run): void {
@@ -1749,7 +1941,8 @@ export class Renderer {
       ctx.fillText(name, r.x + 50, r.y + 84);
       ctx.fillStyle = palette.textDim;
       ctx.font = `700 19px ${FONT}`;
-      ctx.fillText(`当前 ${statValue(card.key, run.stats[card.key])}`, r.x + 50, r.y + 126);
+      const hint = STAT_INFO[card.key].hint;
+      ctx.fillText(`当前 ${statValue(card.key, run.stats[card.key])}${hint ? ` · ${hint}` : ''}`, r.x + 50, r.y + 126);
       outlinedText(ctx, value, r.x + r.w - 40, r.y + r.h / 2, 48, '#FFFFFF', 'right', darken(color, 0.3));
     });
   }
@@ -1844,6 +2037,9 @@ export class Renderer {
       lines = [
         ...wrap(ctx, def.desc, r.w - 40, `600 17px ${FONT}`).map((text) => ({ text, color: palette.ink })),
         { text: `伤害 ${dmg} · 冷却 ${cd} 秒`, color: '#6F5FC0' },
+        ...(fitsClass(run.character.cls, def.id)
+          ? [{ text: `★ 契合${run.character.name}：伤害 +${Math.round(CLASS_WEAPON_BONUS * 100)}%`, color: '#B07A12' }]
+          : []),
       ];
       unlocks = combosUnlockedBy(
         run.weapons.map((w) => w.id),
@@ -2118,18 +2314,49 @@ export class Renderer {
       }
     } else if (run.mode === 'endless') {
       if (game.newRecord) {
-        outlinedText(ctx, '★ 新纪录！', 360, 712, 28, palette.goldLight, 'center', '#A8700E');
+        outlinedText(ctx, '★ 新纪录！', 360, 700, 28, palette.goldLight, 'center', '#A8700E');
       } else {
         const rec = game.save.endless;
         ctx.fillStyle = darken(palette.gold, 0.25);
         ctx.font = `800 20px ${FONT}`;
-        ctx.fillText(`最高：第 ${rec.bestWave} 波 · 击败 ${rec.bestKills}`, 360, 712);
+        ctx.fillText(`最高：第 ${rec.bestWave} 波 · 击败 ${rec.bestKills}`, 360, 700);
       }
+      this.drawEndRank(game);
     }
     if (result && result.stardust > 0) {
       const extra = result.newStars > 0 ? `（新星 +${result.newStars}）` : '';
       outlinedText(ctx, `+${result.stardust} 星尘${extra}`, 360, 770, 22, palette.goldLight, 'center', '#A8700E');
     }
+  }
+
+  /** Where the finished endless run landed on the leaderboard. */
+  private drawEndRank(game: Game): void {
+    const ctx = this.ctx;
+    const r = S.END_RANK;
+    const e = game.endRank;
+    let text = '';
+    let tappable = false;
+    if (e.state === 'noname') {
+      text = '🏆 点这里起个名字，上排行榜';
+      tappable = true;
+    } else if (e.state === 'sending') text = '正在上传成绩……';
+    else if (e.state === 'error') {
+      text = '成绩没传上去，点这里重试';
+      tappable = true;
+    } else if (e.state === 'done') {
+      const where = game.boardOnline ? '' : '本机';
+      text = `🏆 ${where}总榜第 ${e.all} 名 · 本周第 ${e.week} 名`;
+    }
+    if (!text) return;
+    if (tappable) {
+      roundRectPath(ctx, r.x, r.y, r.w, r.h, 21);
+      paint(ctx, 'rgba(138, 92, 224, 0.12)', 2, '#8A5CE0');
+    }
+    ctx.fillStyle = '#5A2E9E';
+    ctx.font = `800 20px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, r.x + r.w / 2, r.y + r.h / 2);
   }
 
   private panel(x: number, y: number, w: number, h: number, border: string): void {
@@ -2219,6 +2446,8 @@ function easeOut(t: number): number {
 function statValue(key: StatKey, v: number): string {
   const info = STAT_INFO[key];
   if (key === 'maxHp') return formatNumber(v);
+  // Dodge stops counting at the cap; say so instead of showing a useless 80%.
+  if (key === 'dodge' && v >= MAX_DODGE) return `+${MAX_DODGE}%（满）`;
   const sign = v > 0 ? '+' : '';
   return `${sign}${Math.round(v)}${info.percent ? '%' : ''}`;
 }

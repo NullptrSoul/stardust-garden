@@ -24,7 +24,8 @@ import { talentMods, talentShards } from '../src/game/data/talents';
 import { WEAPONS, MAX_TIER, TIER_PRICE, weaponById } from '../src/game/data/weapons';
 import { Run, type ShopOffer, type UpgradeCard } from '../src/game/run';
 import type { StatKey, StatMods } from '../src/game/stats';
-import { bossesForWave, isFinalWave } from '../src/game/waves';
+import { bossesForWave, enemyHpScale, isBlessingWave, isFinalWave } from '../src/game/waves';
+import type { BlessingDef } from '../src/game/data/blessings';
 import { SKILL_MAX, World, type Enemy } from '../src/game/world';
 import { Fx } from '../src/game/fx';
 
@@ -369,6 +370,12 @@ function botShop(run: Run, plan: BotPlan): void {
   }
 }
 
+/** The bot's blessing taste: raw damage first, then speed, then staying alive. */
+const BLESSING_TASTE = ['might', 'resonance', 'gale', 'vigor', 'bulwark', 'bloodpact', 'freeze', 'harvest'];
+function pickBlessing(choices: BlessingDef[]): BlessingDef {
+  return [...choices].sort((a, b) => BLESSING_TASTE.indexOf(a.id) - BLESSING_TASTE.indexOf(b.id))[0];
+}
+
 // ---- One run ----
 
 export interface WaveLog {
@@ -379,6 +386,46 @@ export interface WaveLog {
   /** Level and total shards collected when the wave ended. */
   level: number;
   earned: number;
+  /** Most monsters alive at once during the wave: they pile up when the build can't keep up. */
+  peakAlive?: number;
+  /** With opts.power: the build's damage per second on 14 dummies, and a regular slime's HP. */
+  crowdDps?: number;
+  slimeHp?: number;
+}
+
+/**
+ * The build's damage per second against a pack of 14 immovable dummies, as
+ * it stands right now. startWave only reads the run, so this leaves it as is.
+ */
+function buildDps(run: Run): number {
+  const world = new World(new Rng(5), silent, silent);
+  world.startWave(run);
+  world.enemies = [];
+  (world as any).spawnT = 1e9;
+  (world as any).thiefAt = -1;
+  const p = world.player;
+  const spawn = (world as any).spawnEnemy.bind(world);
+  const dummies: Enemy[] = [];
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2;
+    const d = 90 + (i % 3) * 45;
+    const e: Enemy = spawn(enemyById('slime'), p.x + Math.cos(a) * d, p.y + Math.sin(a) * d, 1, false);
+    e.hp = e.maxHp = 1e9;
+    e.damage = 0;
+    e.def = { ...e.def, speed: 0, damage: 0 };
+    dummies.push(e);
+  }
+  // The dummy fight must not count as battle time (the tide reads it).
+  const playTime = run.playTime;
+  const T = 8;
+  for (let t = 0; t < T; t += DT) {
+    world.hitStop = 0;
+    for (const e of dummies) e.kx = e.ky = e.vx = e.vy = 0;
+    world.update(DT, 0, 0);
+    world.player.hp = 1e6;
+  }
+  run.playTime = playTime;
+  return dummies.reduce((s, e) => s + (e.maxHp - e.hp), 0) / T;
 }
 
 export interface RunResult {
@@ -406,7 +453,7 @@ export function playRun(
   stage: StageDef | null,
   character: CharacterDef,
   seed: number,
-  opts: { plan?: BotPlan; talents?: Record<string, number>; noPreShop?: boolean; skill?: BotSkill; feel?: Feel } = {},
+  opts: { plan?: BotPlan; talents?: Record<string, number>; noPreShop?: boolean; skill?: BotSkill; feel?: Feel; power?: boolean } = {},
 ): RunResult {
   const plan = opts.plan ?? {};
   const talents = opts.talents ?? {};
@@ -435,7 +482,9 @@ export function playRun(
   world.startWave(run);
   const waves: WaveLog[] = [];
   let taken = 0;
+  let peakAlive = 0;
   let lastHp = world.player.hp;
+  const power = () => (opts.power ? { crowdDps: buildDps(run), slimeHp: enemyById('slime').hp * enemyHpScale(run) } : {});
   for (;;) {
     if (opts.feel) {
       // Like Game.update: while frozen, nothing moves, effects included.
@@ -479,9 +528,10 @@ export function playRun(
       );
     }
     lastHp = hp;
+    peakAlive = Math.max(peakAlive, world.enemies.length);
     const boss = bossesForWave(run).length > 0;
     if (ev === 'playerDied' || (boss && world.elapsed > BOSS_TIMEOUT)) {
-      waves.push({ wave: run.wave, damageTaken: taken, time: world.elapsed, boss, level: run.level, earned });
+      waves.push({ wave: run.wave, damageTaken: taken, time: world.elapsed, boss, level: run.level, earned, peakAlive, ...power() });
       return {
         stage: stageId,
         character: character.id,
@@ -496,8 +546,9 @@ export function playRun(
       };
     }
     if (ev !== 'waveCleared') continue;
-    waves.push({ wave: run.wave, damageTaken: taken, time: world.elapsed, boss, level: run.level, earned });
+    waves.push({ wave: run.wave, damageTaken: taken, time: world.elapsed, boss, level: run.level, earned, peakAlive, ...power() });
     taken = 0;
+    peakAlive = 0;
     run.finishWave();
     if (isFinalWave(run) || (!stage && run.wave >= ENDLESS_CAP)) {
       return {
@@ -515,6 +566,8 @@ export function playRun(
         items: [...run.items].map(([id, n]) => `${id}×${n}`),
       };
     }
+    // Like the game: a beaten endless boss grants a blessing before the chests.
+    if (isBlessingWave(run) && !world.bossLeftThisWave) run.takeBlessing(pickBlessing(run.rollBlessings()));
     while (run.chests > 0) run.resolveChest(run.randomItem(), true);
     while (run.pendingLevels > 0) run.applyUpgrade(pickUpgrade(run, run.rollUpgrades()));
     run.rollShop();
@@ -672,25 +725,28 @@ function quantile(sorted: number[], q: number): number {
 function endlessReport(runs: number, skill: BotSkill, talents: Record<string, number>): void {
   const tag = Object.keys(talents).length ? 'maxed talents' : 'no talents';
   console.log(`\n== Endless: ${skill} bot, ${tag}, ${runs} runs per character (cap ${ENDLESS_CAP}) ==`);
-  console.log('character   p10  p25  median  p75  p90  max   timeouts  avg min/run');
+  console.log('character   p10  p25  median  p75  p90  max   timeouts  avg min/run  longest');
   const all: number[] = [];
   const deathWaves = new Map<number, number>();
   for (const ch of CHARACTERS) {
     const waves: number[] = [];
     let timeouts = 0;
     let minutes = 0;
+    let longest = 0;
     for (let i = 0; i < runs; i++) {
       const r = playRun(null, ch, 3000 + i, { skill, talents });
       waves.push(r.wave);
       if (r.timedOut) timeouts++;
-      minutes += r.waves.reduce((s, w) => s + w.time, 0) / 60;
+      const m = r.waves.reduce((s, w) => s + w.time, 0) / 60;
+      minutes += m;
+      longest = Math.max(longest, m);
       deathWaves.set(r.wave, (deathWaves.get(r.wave) ?? 0) + 1);
     }
     waves.sort((a, b) => a - b);
     all.push(...waves);
     const q = (x: number) => String(quantile(waves, x)).padStart(4);
     console.log(
-      `${ch.name.padEnd(6, '　')} ${q(0.1)} ${q(0.25)}   ${q(0.5)}  ${q(0.75)} ${q(0.9)} ${String(waves[waves.length - 1]).padStart(4)}   ${String(timeouts).padStart(5)}     ${(minutes / runs).toFixed(1)}`,
+      `${ch.name.padEnd(6, '　')} ${q(0.1)} ${q(0.25)}   ${q(0.5)}  ${q(0.75)} ${q(0.9)} ${String(waves[waves.length - 1]).padStart(4)}   ${String(timeouts).padStart(5)}     ${(minutes / runs).toFixed(1)}      ${longest.toFixed(1)}`,
     );
   }
   all.sort((a, b) => a - b);
@@ -724,6 +780,47 @@ function curveReport(runs: number, stageId: string, skill: BotSkill): void {
       `${String(wave).padStart(4)}  ${String(r.n).padStart(5)}  ${(r.level / r.n).toFixed(1).padStart(5)}  ${(r.earned / r.n).toFixed(0).padStart(13)}  ${(r.time / r.n).toFixed(0).padStart(8)}  ${(r.dmg / r.n).toFixed(1).padStart(9)}`,
     );
   }
+}
+
+/**
+ * Endless only: does the build keep up with the monsters? Per wave, the
+ * build's crowd DPS, a slime's HP, and the seconds the build needs to clear a
+ * pack of 14 slimes. When that last number explodes, players feel monsters
+ * "can't be killed any more".
+ */
+function powerReport(runs: number, skill: BotSkill): void {
+  type Row = { n: number; dps: number; hp: number; clear: number; peak: number; dmg: number; level: number };
+  const rows = new Map<number, Row>();
+  const deaths: number[] = [];
+  for (const ch of CHARACTERS) {
+    for (let i = 0; i < runs; i++) {
+      const r = playRun(null, ch, 6000 + i, { skill, power: true });
+      deaths.push(r.wave);
+      for (const w of r.waves) {
+        if (w.crowdDps === undefined || w.slimeHp === undefined) continue;
+        const row = rows.get(w.wave) ?? { n: 0, dps: 0, hp: 0, clear: 0, peak: 0, dmg: 0, level: 0 };
+        row.n++;
+        row.dps += w.crowdDps;
+        row.hp += w.slimeHp;
+        row.clear += (14 * w.slimeHp) / Math.max(1, w.crowdDps);
+        row.peak += w.peakAlive ?? 0;
+        row.dmg += w.damageTaken;
+        row.level += w.level;
+        rows.set(w.wave, row);
+      }
+    }
+  }
+  deaths.sort((a, b) => a - b);
+  console.log(`\n== Endless power: ${skill} bot, ${runs} runs per character ==`);
+  console.log('wave  alive  level  crowd DPS   slime HP  clear 14 (s)  peak alive  dmg taken');
+  for (const [wave, r] of [...rows].sort((a, b) => a[0] - b[0])) {
+    const f = (v: number, d = 0) => (v / r.n).toFixed(d);
+    console.log(
+      `${String(wave).padStart(4)}  ${String(r.n).padStart(5)}  ${f(r.level, 1).padStart(5)}  ${f(r.dps).padStart(9)}  ${f(r.hp).padStart(9)}  ${f(r.clear, 1).padStart(12)}  ${f(r.peak).padStart(10)}  ${f(r.dmg, 1).padStart(9)}`,
+    );
+  }
+  const q = (x: number) => quantile(deaths, x);
+  console.log(`ends at: p10 ${q(0.1)}  p25 ${q(0.25)}  median ${q(0.5)}  p75 ${q(0.75)}  p90 ${q(0.9)}`);
 }
 
 /** How much of the time the screen is frozen or shaking, like the player sees it. */
@@ -773,6 +870,8 @@ if (cmd === 'stages') {
   endlessReport(runs, skill, args.includes('talents') ? MAX_TALENTS : {});
 } else if (cmd === 'feel') {
   feelReport(runs, args[2] ? args[2].split(',') : ['1-1', '1-5', '2-5']);
+} else if (cmd === 'power') {
+  powerReport(runs, skill);
 } else if (cmd === 'curve') {
   curveReport(runs, args[2] ?? '1-5', skill);
 } else if (cmd === 'weapons') {

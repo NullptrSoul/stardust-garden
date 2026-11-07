@@ -7,7 +7,8 @@ import type { SkillKind } from './data/characters';
 import { ENEMIES, enemyById, type EnemyDef } from './data/enemies';
 import { chapterOfStage } from './data/stages';
 import { AFFIX_LIST, ARMOR_TAKEN, BLAST_DELAY, BLAST_RADIUS, FRENZY_SPEED, REGEN_PER_SEC, type EliteAffix } from './data/affixes';
-import { activeCombos, type ComboId } from './data/synergies';
+import { BLOODPACT_CHANCE, RESONANCE_BONUS } from './data/blessings';
+import { activeCombos, CLASS_WEAPON_BONUS, fitsClass, type ComboId } from './data/synergies';
 import { TIER_COOLDOWN, TIER_DAMAGE, weaponById, type WeaponDef } from './data/weapons';
 import type { Fx } from './fx';
 import * as L from './layout';
@@ -347,6 +348,8 @@ export class World {
   introBoss: Enemy | null = null;
   /** Set when an endless boss ran out of time and left; the game shows a toast and clears it. */
   bossFled = false;
+  /** Like bossFled, but stays set until the next wave: no blessing for a boss that left. */
+  bossLeftThisWave = false;
   private lastStopAt = -1;
   private spawnT = 0;
   /** Seconds into the wave when the thief shows up, or -1 for none. */
@@ -387,6 +390,7 @@ export class World {
     this.hitStop = 0;
     this.introBoss = null;
     this.bossFled = false;
+    this.bossLeftThisWave = false;
     this.lastStopAt = -1;
     this.boss = null;
     this.bosses = [];
@@ -458,6 +462,7 @@ export class World {
     const stats = this.run.stats;
     const p = this.player;
     this.elapsed += dt;
+    this.run.playTime += dt;
 
     // Player
     const mag = Math.min(1, Math.hypot(moveX, moveY));
@@ -513,6 +518,7 @@ export class World {
     const fled = this.duration === 0 && limit > 0 && this.elapsed >= limit && this.bosses.some((b) => b.alive);
     if (fled) {
       this.bossFled = true;
+      this.bossLeftThisWave = true;
       for (const b of this.bosses) b.alive = false;
     }
     if (timedOut || bossDown || fled) this.beginEnding();
@@ -1272,6 +1278,10 @@ export class World {
   private roll(w: WeaponState): { damage: number; crit: boolean } {
     const stats = this.run.stats;
     let dmg = w.def.damage * TIER_DAMAGE[w.tier] * damageMultiplier(stats, w.def.cls);
+    // Weapons that fit the character's class hit harder.
+    if (fitsClass(this.run.character.cls, w.def.id)) {
+      dmg *= 1 + CLASS_WEAPON_BONUS + RESONANCE_BONUS * this.run.blessingCount('resonance');
+    }
     // Twin blades combo: the scythe and the spear crit more often.
     const twin = this.combos.has('twinblade') && (w.def.id === 'scythe' || w.def.id === 'spear') ? 0.15 : 0;
     const crit = this.rng.next() < critChance(stats) + twin;
@@ -1397,7 +1407,9 @@ export class World {
     const def = e.def;
     if (def.behavior !== 'still') {
       // Vampire fang: a chance to heal on every kill.
-      if (this.rng.chance(0.1 * this.itemCount('fang'))) this.healPlayer(1);
+      // The blood pact blessing works the same way.
+      const heal = 0.1 * this.itemCount('fang') + BLOODPACT_CHANCE * this.run.blessingCount('bloodpact');
+      if (this.rng.chance(heal)) this.healPlayer(1);
       this.run.kills++;
       this.energy = Math.min(SKILL_MAX, this.energy + config.skillChargePerKill);
     }

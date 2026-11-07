@@ -53,20 +53,21 @@ export const STAT_ORDER: StatKey[] = [
   'xpGain',
 ];
 
-export const STAT_INFO: Record<StatKey, { name: string; percent: boolean }> = {
+/** hint: one short line for stats whose effect is not obvious from the name. */
+export const STAT_INFO: Record<StatKey, { name: string; percent: boolean; hint?: string }> = {
   maxHp: { name: '生命上限', percent: false },
-  regen: { name: '生命回复', percent: false },
+  regen: { name: '生命回复', percent: false, hint: '每秒慢慢回血' },
   damage: { name: '伤害', percent: true },
   meleeDamage: { name: '近战伤害', percent: true },
   rangedDamage: { name: '远程伤害', percent: true },
   attackSpeed: { name: '攻速', percent: true },
-  crit: { name: '暴击', percent: true },
-  range: { name: '范围', percent: false },
-  armor: { name: '护甲', percent: false },
-  dodge: { name: '闪避', percent: true },
+  crit: { name: '暴击', percent: true, hint: '暴击造成 2 倍伤害' },
+  range: { name: '范围', percent: false, hint: '武器打得更远' },
+  armor: { name: '护甲', percent: false, hint: '每次受伤都少掉一些血' },
+  dodge: { name: '闪避', percent: true, hint: '躲开一次任何伤害，最多 60%' },
   speed: { name: '移速', percent: true },
-  pickup: { name: '拾取范围', percent: false },
-  luck: { name: '幸运', percent: false },
+  pickup: { name: '拾取范围', percent: false, hint: '离得更远也能吸到星屑' },
+  luck: { name: '幸运', percent: false, hint: '更容易出好卡、好武器' },
   xpGain: { name: '经验', percent: true },
 };
 

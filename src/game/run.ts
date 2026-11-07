@@ -1,6 +1,7 @@
 import { Rng } from '../engine/rng';
 import { config } from './config';
 import type { CharacterDef } from './data/characters';
+import { BLESSINGS, HARVEST_BONUS, type BlessingDef } from './data/blessings';
 import { activeItemSets, ITEMS, type ItemDef } from './data/items';
 import { LEVEL_UPGRADES, rollRarity } from './data/upgrades';
 import { MAX_TIER, TIER_PRICE, WEAPONS, weaponById } from './data/weapons';
@@ -68,6 +69,8 @@ export class Run {
   pendingLevels = 0;
   lastStandUsed = false;
   revived = false;
+  /** Set once the run went to the leaderboard. */
+  submitted = false;
   /** Set once the run's result went into the records (a revive can end it twice). */
   recorded = false;
   /** Waves already turned into stardust (a revive can end the run twice). */
@@ -76,6 +79,15 @@ export class Run {
   chests = 0;
   offers: ShopOffer[] = [];
   rerolls = 0;
+  /** Seconds of battle so far (endless: drives the abyss tide). */
+  playTime = 0;
+  /** Abyss blessings taken, by id, and the three on offer right now. */
+  readonly blessings = new Map<string, number>();
+  blessingChoices: BlessingDef[] = [];
+  /** Wave from which shop prices stop climbing (the freeze blessing). */
+  priceFreezeWave: number | null = null;
+  /** Fractions of a shard from the harvest blessing, paid out once whole. */
+  private shardFraction = 0;
   private readonly rng: Rng;
 
   /** The stage being played, or null in endless mode. */
@@ -122,6 +134,13 @@ export class Run {
 
   /** Picking up shards gives money and experience. Returns levels gained. */
   collectShards(n: number): number {
+    const harvest = this.blessingCount('harvest');
+    if (harvest > 0) {
+      this.shardFraction += n * HARVEST_BONUS * harvest;
+      const extra = Math.floor(this.shardFraction + 1e-9);
+      this.shardFraction -= extra;
+      this.shards += extra;
+    }
     this.shards += n;
     this.xp += n * Math.max(0.1, 1 + this.stats.xpGain / 100);
     let gained = 0;
@@ -281,6 +300,24 @@ export class Run {
     const piggy = this.items.get('piggy') ?? 0;
     if (piggy > 0) this.shards += Math.floor(this.shards * Math.min(0.3, 0.08 * piggy));
     this.rerolls = 0;
+  }
+
+  blessingCount(id: string): number {
+    return this.blessings.get(id) ?? 0;
+  }
+
+  /** Three different blessings, skipping one-time ones already taken. */
+  rollBlessings(): BlessingDef[] {
+    const pool = BLESSINGS.filter((b) => !(b.once && this.blessingCount(b.id) > 0));
+    return this.rng.shuffle([...pool]).slice(0, 3);
+  }
+
+  takeBlessing(b: BlessingDef): void {
+    this.blessings.set(b.id, this.blessingCount(b.id) + 1);
+    if (b.mods) addMods(this.base, b.mods);
+    if (b.id === 'freeze') this.priceFreezeWave = this.wave;
+    this.blessingChoices = [];
+    this.refreshStats();
   }
 
   startNextWave(): void {
